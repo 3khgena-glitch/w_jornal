@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2 } from 'lucide-react';
+import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2, ChevronUp, ChevronDown } from 'lucide-react';
 import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 // ==========================================
-// 1. БАЗА ДАНИХ
+// 1. БАЗА ДАНИХ ТА ФУНКЦІЇ ДАТ
 // ==========================================
 export interface Exercise { id: string; name: string; category: string; }
 export interface WorkoutItem { exerciseId: string; weight: string; band: string; reps: string; note: string; }
@@ -18,15 +18,9 @@ export class WorkoutJournalDB extends Dexie {
   workouts!: Table<Workout, string>;
   scheduled!: Table<Scheduled, string>;
   history!: Table<History, string>;
-  
   constructor() {
     super('WJornalDB_v7');
-    this.version(1).stores({ 
-      exercises: 'id, name, category',
-      workouts: 'id, name',
-      scheduled: 'id, date',
-      history: 'id, date'
-    });
+    this.version(1).stores({ exercises: 'id, name, category', workouts: 'id, name', scheduled: 'id, date', history: 'id, date' });
   }
 }
 export const db = new WorkoutJournalDB();
@@ -59,7 +53,6 @@ const formatDuration = (secs: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
-// Жесткая фиксация локальной даты (чтобы избежать смещений из-за часовых поясов)
 const getLocalDateString = (d: Date) => {
   const year = d.getFullYear();
   const month = String(d.getMonth() + 1).padStart(2, '0');
@@ -132,9 +125,12 @@ function CalendarView() {
   return (
     <div className="p-2 pb-24">
       <div className="flex justify-between items-center mb-4 px-2">
-        <div className="flex bg-gray-200 rounded-lg p-1">
-          <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
-          <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v1.5</span>
+          <div className="flex bg-gray-200 rounded-lg p-1">
+            <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
+            <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
+          </div>
         </div>
         <button onClick={() => { setCurrentDate(new Date()); setDayOffset(0); }} className="text-blue-600 font-bold text-sm bg-blue-50 px-3 py-1 rounded">Сьогодні</button>
       </div>
@@ -215,7 +211,7 @@ function CalendarView() {
               </tr>
             </thead>
             <tbody>
-              {workouts?.map(w => (
+              {workouts?.slice().sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')).map(w => (
                 <tr key={w.id} className="hover:bg-gray-50">
                   <td className="sticky left-0 bg-white z-10 p-2 border-b border-r text-[10px] font-bold text-gray-700 leading-tight truncate max-w-[120px]" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
                     {w.name}
@@ -315,12 +311,7 @@ function CalendarView() {
               </button>
               
               <div className="bg-gray-50 p-3 rounded-xl border border-gray-200 mt-4">
-                <textarea 
-                  value={planNote} 
-                  onChange={e => setPlanNote(e.target.value)} 
-                  placeholder="Додати примітку (самопочуття, вага...)" 
-                  className="w-full p-3 border rounded-lg mb-3 bg-white text-sm shadow-sm min-h-[80px]" 
-                />
+                <textarea value={planNote} onChange={e => setPlanNote(e.target.value)} placeholder="Додати примітку (самопочуття, вага...)" className="w-full p-3 border rounded-lg mb-3 bg-white text-sm shadow-sm min-h-[80px]" />
                 <button onClick={() => { const w = workouts?.find(x => x.id === activePlanAction.workoutId); if (w) handleMarkDone(activePlanAction, w.name, w.items); }} className="w-full bg-gray-200 text-gray-800 p-3 rounded-lg font-bold flex items-center justify-center gap-2">
                   <CheckCircle2 size={18} className="text-gray-600" /> Відмітити ВИКОНАНО (--:--)
                 </button>
@@ -369,7 +360,7 @@ function CalendarView() {
             </div>
             <div className="space-y-2">
               {workouts?.length === 0 && <p className="text-gray-500 text-center">База тренувань порожня.</p>}
-              {workouts?.map(w => (
+              {workouts?.slice().sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')).map(w => (
                 <button key={w.id} onClick={() => handlePlan(w.id)} className="w-full text-left p-4 bg-gray-50 rounded-xl font-bold border active:bg-gray-200 shadow-sm">
                   {w.name}
                 </button>
@@ -413,7 +404,23 @@ function Workouts() {
     setItems(newItems);
   };
 
+  const moveItemUp = (index: number) => {
+    if (index === 0) return;
+    const newItems = [...items];
+    [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
+    setItems(newItems);
+  };
+
+  const moveItemDown = (index: number) => {
+    if (index === items.length - 1) return;
+    const newItems = [...items];
+    [newItems[index + 1], newItems[index]] = [newItems[index], newItems[index + 1]];
+    setItems(newItems);
+  };
+
   if (editingId) {
+    const sortedExercises = exercises?.slice().sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
+
     return (
       <div className="p-4 pb-24">
         <div className="flex justify-between items-center mb-4">
@@ -429,8 +436,12 @@ function Workouts() {
             return (
               <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-3">
-                  <span className="font-bold text-blue-800">{exName}</span>
-                  <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={18}/></button>
+                  <span className="font-bold text-blue-800 leading-tight pr-2">{exName}</span>
+                  <div className="flex gap-1">
+                    <button onClick={() => moveItemUp(idx)} disabled={idx === 0} className="text-gray-500 disabled:opacity-20 p-1 bg-gray-100 rounded"><ChevronUp size={18}/></button>
+                    <button onClick={() => moveItemDown(idx)} disabled={idx === items.length - 1} className="text-gray-500 disabled:opacity-20 p-1 bg-gray-100 rounded"><ChevronDown size={18}/></button>
+                    <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 bg-red-50 p-1 rounded ml-2"><Trash2 size={18}/></button>
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
@@ -463,7 +474,7 @@ function Workouts() {
                 <button onClick={() => setShowAddEx(false)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
               </div>
               <div className="space-y-2">
-                {exercises?.map(ex => (
+                {sortedExercises.map(ex => (
                   <button key={ex.id} onClick={() => { setItems([...items, { exerciseId: ex.id, weight: '', band: '', reps: '', note: '' }]); setShowAddEx(false); }} className="w-full text-left p-3 bg-gray-50 border rounded font-medium active:bg-gray-200">
                     {ex.name}
                   </button>
@@ -476,6 +487,8 @@ function Workouts() {
     );
   }
 
+  const sortedWorkouts = workouts?.slice().sort((a, b) => a.name.localeCompare(b.name, 'uk-UA'));
+
   return (
     <div className="p-4 pb-24">
       <div className="flex justify-between items-center mb-6">
@@ -483,7 +496,7 @@ function Workouts() {
         <button onClick={() => startEdit(null)} className="bg-blue-600 text-white p-2 rounded-lg shadow-sm"><Plus /></button>
       </div>
       <div className="space-y-4">
-        {workouts?.map(w => (
+        {sortedWorkouts?.map(w => (
           <div key={w.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
             <div className="flex justify-between items-start mb-3">
               <h3 className="font-bold text-lg text-blue-800">{w.name}</h3>
@@ -525,7 +538,9 @@ function Exercises() {
     setNewName('');
   };
 
-  const filtered = exercises?.filter(ex => ex.name.toLowerCase().includes(search.toLowerCase())) || [];
+  const filtered = exercises
+    ?.filter(ex => ex.name.toLowerCase().includes(search.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
 
   return (
     <div className="p-4 pb-24">
@@ -550,6 +565,19 @@ function Exercises() {
 // ==========================================
 // 5. ТАЙМЕРИ ТА ВИКОНАННЯ ТРЕНУВАННЯ
 // ==========================================
+function NumberControl({ label, value, setValue }: { label: string, value: number, setValue: (v: number | ((prev: number) => number)) => void }) {
+  return (
+    <div className="flex items-center justify-between w-full py-2 border-b border-gray-100 last:border-0">
+      <div className="text-sm text-gray-500 font-bold uppercase">{label}</div>
+      <div className="flex items-center gap-2">
+        <button onClick={() => setValue(v => Math.max(1, typeof v === 'number' ? v - 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 active:bg-gray-200 shadow-sm">-</button>
+        <input type="number" value={value} onChange={e => setValue(Math.max(1, Number(e.target.value)))} className="w-16 text-center font-bold text-xl bg-transparent outline-none p-0 m-0" />
+        <button onClick={() => setValue(v => (typeof v === 'number' ? v + 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 active:bg-gray-200 shadow-sm">+</button>
+      </div>
+    </div>
+  );
+}
+
 function Timers() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -569,6 +597,9 @@ function Timers() {
   const [freeTime, setFreeTime] = useState(0);
   const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
   const [workoutNote, setWorkoutNote] = useState('');
+  
+  // Час фаз
+  const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
 
   const beep = (freq: number, duration: number) => {
     if (!audioCtx.current) return;
@@ -583,6 +614,12 @@ function Timers() {
     if (!audioCtx.current) audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
     audioCtx.current.resume();
   };
+
+  useEffect(() => {
+    if (phase === 'IDLE') {
+      setTimeLeft(workTime);
+    }
+  }, [workTime, phase]);
 
   useEffect(() => {
     let t: number;
@@ -608,7 +645,15 @@ function Timers() {
   useEffect(() => {
     let t: number;
     if (mode === 'FREE' && freePhase !== 'Зупинено') {
-      t = window.setInterval(() => setFreeTime(prev => prev + 1), 1000);
+      t = window.setInterval(() => {
+        setFreeTime(prev => prev + 1);
+        setPhaseTimes(prev => {
+          if (freePhase === 'Розминка') return { ...prev, warmup: prev.warmup + 1 };
+          if (freePhase === 'Основна') return { ...prev, main: prev.main + 1 };
+          if (freePhase === 'Заминка') return { ...prev, cooldown: prev.cooldown + 1 };
+          return prev;
+        });
+      }, 1000);
     }
     return () => clearInterval(t);
   }, [freePhase, mode]);
@@ -624,18 +669,23 @@ function Timers() {
     setFreePhase('Зупинено');
     
     if (activeWorkoutData) {
+      const breakdownInfo = `[Розминка: ${formatDuration(phaseTimes.warmup)} | Основна: ${formatDuration(phaseTimes.main)} | Заминка: ${formatDuration(phaseTimes.cooldown)}]`;
+      const finalNote = workoutNote ? `${workoutNote}\n\n${breakdownInfo}` : breakdownInfo;
+
       await db.history.add({
         id: crypto.randomUUID(),
         date: getLocalDateString(new Date()),
         workoutName: activeWorkoutData.workout.name,
         duration: freeTime,
         items: activeWorkoutData.workout.items,
-        note: workoutNote
+        note: finalNote
       });
       await db.scheduled.delete(activeWorkoutData.plan.id);
       navigate('/');
     }
+    
     setFreeTime(0);
+    setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 });
     setWorkoutNote('');
   };
 
@@ -656,10 +706,10 @@ function Timers() {
       {mode === 'TABATA' ? (
         <div className="flex flex-col items-center">
           {!isRunning && phase === 'IDLE' && (
-            <div className="w-full bg-white p-4 rounded-xl shadow-sm mb-6 flex justify-between gap-2">
-              <div className="text-center"><div className="text-xs text-gray-500">Робота</div><input type="number" value={workTime} onChange={e => setWorkTime(Number(e.target.value))} className="w-full text-xl font-bold text-center border-b-2" /></div>
-              <div className="text-center"><div className="text-xs text-gray-500">Відпочинок</div><input type="number" value={restTime} onChange={e => setRestTime(Number(e.target.value))} className="w-full text-xl font-bold text-center border-b-2" /></div>
-              <div className="text-center"><div className="text-xs text-gray-500">Цикли</div><input type="number" value={rounds} onChange={e => setRounds(Number(e.target.value))} className="w-full text-xl font-bold text-center border-b-2" /></div>
+            <div className="w-full bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col">
+              <NumberControl label="Робота (сек)" value={workTime} setValue={setWorkTime as any} />
+              <NumberControl label="Відпочинок (сек)" value={restTime} setValue={setRestTime as any} />
+              <NumberControl label="Цикли" value={rounds} setValue={setRounds as any} />
             </div>
           )}
           <div className={`w-64 h-64 rounded-full flex flex-col items-center justify-center text-white shadow-lg transition-colors ${phase === 'WORK' ? 'bg-red-500' : phase === 'REST' ? 'bg-green-500' : 'bg-gray-800'}`}>
@@ -671,24 +721,45 @@ function Timers() {
           {phase !== 'IDLE' && !isRunning && <button onClick={() => { setPhase('IDLE'); setIsRunning(false); }} className="mt-4 text-red-600 px-8 py-3 rounded-xl font-bold w-full">Скинути</button>}
         </div>
       ) : (
-        <div className="flex flex-col items-center">
-          <div className="text-6xl font-mono my-8">{formatDuration(freeTime)}</div>
-          <div className="text-xl font-bold mb-8 text-blue-600">{freePhase}</div>
-          <div className="grid grid-cols-1 gap-4 w-full">
-            <button onClick={() => { initAudio(); setFreePhase('Розминка'); }} className="bg-yellow-400 text-black py-4 rounded-xl font-bold shadow">Почати Розминку</button>
-            <button onClick={() => { initAudio(); setFreePhase('Основна'); }} className="bg-red-500 text-white py-4 rounded-xl font-bold shadow">Почати Основну</button>
-            <button onClick={() => { initAudio(); setFreePhase('Заминка'); }} className="bg-green-500 text-white py-4 rounded-xl font-bold shadow">Почати Заминку</button>
+        <div className="flex flex-col items-center w-full">
+          <div className="text-6xl font-mono mt-4 mb-2">{formatDuration(freeTime)}</div>
+          <div className="text-lg font-bold mb-4 text-blue-600 uppercase">{freePhase}</div>
+
+          {/* Лічильники фаз */}
+          <div className="w-full flex justify-between bg-white p-3 rounded-xl shadow-sm mb-6 border border-gray-100">
+            <div className="text-center w-1/3">
+              <div className="text-[10px] text-gray-400 font-bold uppercase">Розминка</div>
+              <div className={`font-mono text-lg ${freePhase === 'Розминка' ? 'text-yellow-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.warmup)}</div>
+            </div>
+            <div className="text-center w-1/3 border-l border-r border-gray-100">
+              <div className="text-[10px] text-gray-400 font-bold uppercase">Основна</div>
+              <div className={`font-mono text-lg ${freePhase === 'Основна' ? 'text-red-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.main)}</div>
+            </div>
+            <div className="text-center w-1/3">
+              <div className="text-[10px] text-gray-400 font-bold uppercase">Заминка</div>
+              <div className={`font-mono text-lg ${freePhase === 'Заминка' ? 'text-green-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.cooldown)}</div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 w-full">
+            <button onClick={() => { initAudio(); setFreePhase('Розминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Розминка' ? 'bg-yellow-400 text-black ring-2 ring-yellow-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Розминку</button>
+            <button onClick={() => { initAudio(); setFreePhase('Основна'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Основна' ? 'bg-red-500 text-white ring-2 ring-red-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Основну</button>
+            <button onClick={() => { initAudio(); setFreePhase('Заминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Заминка' ? 'bg-green-500 text-white ring-2 ring-green-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Заминку</button>
             
             {activeWorkoutData && (
-              <textarea 
-                value={workoutNote} 
-                onChange={e => setWorkoutNote(e.target.value)} 
-                placeholder="Примітка до тренування (самопочуття, вага...)" 
-                className="w-full p-3 border rounded-lg mt-4 bg-white text-sm shadow-sm min-h-[80px]" 
-              />
+              <textarea value={workoutNote} onChange={e => setWorkoutNote(e.target.value)} placeholder="Примітка до тренування (самопочуття, вага...)" className="w-full p-3 border rounded-lg mt-4 bg-white text-sm shadow-sm min-h-[80px]" />
             )}
             
-            <button onClick={finishFreeWorkout} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg border-2 border-transparent active:border-gray-500">
+            <button 
+              onClick={() => {
+                if(!activeWorkoutData) {
+                  initAudio(); setFreePhase('Зупинено'); setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 });
+                } else {
+                  finishFreeWorkout();
+                }
+              }} 
+              className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg border-2 border-transparent active:border-gray-500"
+            >
               {activeWorkoutData ? 'Завершити та Зберегти' : 'Зупинити таймер'}
             </button>
           </div>
