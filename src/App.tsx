@@ -1,11 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
 import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 // ==========================================
-// 1. БАЗА ДАНИХ (Оновлена структура)
+// 1. БАЗА ДАНИХ
 // ==========================================
 export interface Exercise { id: string; name: string; category: string; }
 export interface WorkoutItem { exerciseId: string; weight: string; band: string; reps: string; note: string; }
@@ -20,7 +20,7 @@ export class WorkoutJournalDB extends Dexie {
   history!: Table<History, string>;
   
   constructor() {
-    super('WJornalDB_v6');
+    super('WJornalDB_v7');
     this.version(1).stores({ 
       exercises: 'id, name, category',
       workouts: 'id, name',
@@ -31,7 +31,6 @@ export class WorkoutJournalDB extends Dexie {
 }
 export const db = new WorkoutJournalDB();
 
-// Твої початкові дані
 const initialExercises = [
   { category: 'МИНОТАВР', name: 'ГОБЛЕТ-присидання' }, { category: 'МИНОТАВР', name: 'ПРОТЯЖКА до подборіддя' }, { category: 'МИНОТАВР', name: 'МАХИ 2 руками' }, { category: 'МИНОТАВР', name: 'ТЯГА В НАКЛОНІ до поясу' }, { category: 'МИНОТАВР', name: 'СТАНОВА ТЯГА з гірею' },
   { category: 'НОГИ', name: 'ПРИСІДАННЯ з ЕСПАНДЕРОМ' },
@@ -53,14 +52,25 @@ const initialWorkouts = [
   { name: 'СПИНА', exercises: ['ПІДТЯГУВАННЯ', 'ПІДТЯГУВАННЯ З ЕСПАНДЕРОМ', 'ТЯГА В НАКЛОНІ еспандера зворотнім хватом', 'ШРАГИ З ЕСПАНДЕРОМ', 'ПРОТЯЖКА до подборіддя', 'СТАНОВА ТЯГА з еспандером'] }
 ];
 
+const formatDuration = (secs: number) => {
+  if (secs === 0) return '--:--';
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  return `${m}:${s.toString().padStart(2, '0')}`;
+};
+
 // ==========================================
 // 2. КАЛЕНДАР (МІСЯЦЬ + ТИЖДЕНЬ)
 // ==========================================
 function CalendarView() {
+  const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [view, setView] = useState<'week' | 'month'>('week');
+  
   const scheduled = useLiveQuery(() => db.scheduled.toArray());
+  const historyData = useLiveQuery(() => db.history.toArray());
   const workouts = useLiveQuery(() => db.workouts.toArray());
+  
   const [planModalDate, setPlanModalDate] = useState<string | null>(null);
 
   const getWeekDays = (date: Date) => {
@@ -92,6 +102,21 @@ function CalendarView() {
     }
   };
 
+  const handleMarkDone = async (plan: Scheduled, workoutName: string, items: WorkoutItem[]) => {
+    await db.history.add({
+      id: crypto.randomUUID(),
+      date: plan.date,
+      workoutName: workoutName,
+      duration: 0, 
+      items: items
+    });
+    await db.scheduled.delete(plan.id);
+  };
+
+  const handleStart = (plan: Scheduled, workout: Workout) => {
+    navigate('/timer', { state: { plan, workout } });
+  };
+
   return (
     <div className="p-4 pb-24">
       <div className="flex justify-between items-center mb-4">
@@ -105,18 +130,10 @@ function CalendarView() {
       {view === 'month' && (
         <div className="bg-white rounded-xl shadow-sm p-4">
           <div className="flex gap-2 mb-4">
-            <select 
-              value={currentDate.getMonth()} 
-              onChange={e => { const d = new Date(currentDate); d.setMonth(Number(e.target.value)); setCurrentDate(d); }}
-              className="p-2 border rounded font-bold bg-gray-50 flex-1"
-            >
+            <select value={currentDate.getMonth()} onChange={e => { const d = new Date(currentDate); d.setMonth(Number(e.target.value)); setCurrentDate(d); }} className="p-2 border rounded font-bold bg-gray-50 flex-1">
               {Array.from({length: 12}).map((_, i) => <option key={i} value={i}>{new Date(2000, i).toLocaleDateString('uk-UA', {month: 'long'})}</option>)}
             </select>
-            <select 
-              value={currentDate.getFullYear()} 
-              onChange={e => { const d = new Date(currentDate); d.setFullYear(Number(e.target.value)); setCurrentDate(d); }}
-              className="p-2 border rounded font-bold bg-gray-50 w-24"
-            >
+            <select value={currentDate.getFullYear()} onChange={e => { const d = new Date(currentDate); d.setFullYear(Number(e.target.value)); setCurrentDate(d); }} className="p-2 border rounded font-bold bg-gray-50 w-24">
               {[2024, 2025, 2026, 2027].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
           </div>
@@ -128,10 +145,33 @@ function CalendarView() {
             {getMonthDays(currentDate.getFullYear(), currentDate.getMonth()).map(day => {
               const dStr = day.toISOString().split('T')[0];
               const plans = scheduled?.filter(s => s.date === dStr) || [];
+              const hists = historyData?.filter(h => h.date === dStr) || [];
+              
+              let bgClass = 'bg-white border-transparent';
+              let textClass = 'text-gray-700';
+              let indicator = null;
+
+              // Виконані - Зелений фон
+              if (hists.length > 0) { 
+                bgClass = 'bg-green-100 border-green-300'; 
+                textClass = 'text-green-800 font-bold'; 
+                indicator = <div className="text-[10px]">✓</div>;
+              } 
+              // Заплановані - Без заливки, тільки літера
+              else if (plans.length > 0) { 
+                bgClass = 'bg-white border-gray-200 shadow-sm'; 
+                textClass = 'text-gray-900 font-bold'; 
+                const w = workouts?.find(w => w.id === plans[0].workoutId);
+                const firstLetter = w ? w.name.charAt(0).toUpperCase() : '?';
+                indicator = <div className="text-[10px] text-blue-600 font-bold leading-none mt-1">{firstLetter}</div>;
+              }
+              
+              const isToday = dStr === todayStr;
+
               return (
-                <div key={dStr} onClick={() => setPlanModalDate(dStr)} className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm cursor-pointer border ${plans.length > 0 ? 'bg-green-100 text-green-800 font-bold' : 'bg-gray-50'} ${dStr === todayStr ? 'ring-2 ring-blue-500' : ''}`}>
+                <div key={dStr} onClick={() => setPlanModalDate(dStr)} className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm cursor-pointer border ${bgClass} ${textClass} ${isToday ? 'ring-2 ring-blue-500' : ''}`}>
                   <span>{day.getDate()}</span>
-                  {plans.length > 0 && <div className="w-1.5 h-1.5 rounded-full bg-green-600 mt-1"></div>}
+                  {indicator}
                 </div>
               );
             })}
@@ -144,24 +184,43 @@ function CalendarView() {
           <div className="font-bold text-lg mb-2 capitalize">{currentDate.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' })}</div>
           {getWeekDays(currentDate).map(day => {
             const dStr = day.toISOString().split('T')[0];
+            const isToday = dStr === todayStr;
+            const isPast = dStr < todayStr;
+            
             const plans = scheduled?.filter(s => s.date === dStr) || [];
+            const hists = historyData?.filter(h => h.date === dStr) || [];
+            
             return (
-              <div key={dStr} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${dStr === todayStr ? 'border-blue-500 ring-1 ring-blue-100' : 'border-transparent'}`}>
+              <div key={dStr} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isToday ? 'border-blue-500 ring-1 ring-blue-100' : 'border-transparent'}`}>
                 <div className="flex justify-between items-center mb-2">
                   <div className="flex items-baseline gap-2">
-                    <span className="text-xl font-bold">{day.getDate()}</span>
+                    <span className={`text-xl font-bold ${isToday ? 'text-blue-600' : ''}`}>{day.getDate()}</span>
                     <span className="text-sm text-gray-500 capitalize">{day.toLocaleDateString('uk-UA', { weekday: 'short' })}</span>
                   </div>
                   <button onClick={() => setPlanModalDate(dStr)} className="bg-blue-50 text-blue-600 p-1.5 rounded"><Plus size={18} /></button>
                 </div>
+
+                {hists.map(h => (
+                  <div key={h.id} className="mt-2 p-2 bg-green-50 border border-green-200 rounded flex justify-between items-center">
+                    <span className="font-bold text-sm text-green-800">✓ {h.workoutName}</span>
+                    <span className="text-xs font-mono text-green-700 bg-green-100 px-2 py-1 rounded">
+                      {formatDuration(h.duration)}
+                    </span>
+                  </div>
+                ))}
+
                 {plans.map(p => {
                   const w = workouts?.find(w => w.id === p.workoutId);
                   return (
                     <div key={p.id} className="mt-2 p-2 bg-gray-50 rounded border flex justify-between items-center">
                       <span className="font-bold text-sm">{w?.name || 'Видалене тренування'}</span>
                       <div className="flex gap-2">
-                        <button className="text-[10px] bg-green-500 text-white px-2 py-1 rounded font-bold">СТАРТ</button>
-                        <button onClick={() => db.scheduled.delete(p.id)} className="text-red-500"><Trash2 size={14}/></button>
+                        {isPast ? (
+                          <button onClick={() => w && handleMarkDone(p, w.name, w.items)} className="text-[10px] bg-gray-500 text-white px-3 py-1 rounded font-bold">ВИКОНАНО</button>
+                        ) : (
+                          <button onClick={() => w && handleStart(p, w)} className="text-[10px] bg-blue-500 text-white px-4 py-1 rounded font-bold">СТАРТ</button>
+                        )}
+                        <button onClick={() => db.scheduled.delete(p.id)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
                       </div>
                     </div>
                   );
@@ -172,7 +231,6 @@ function CalendarView() {
         </div>
       )}
 
-      {/* Модалка вибору тренування */}
       {planModalDate && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
@@ -243,7 +301,7 @@ function Workouts() {
               <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
                 <div className="flex justify-between items-center mb-3">
                   <span className="font-bold text-blue-800">{exName}</span>
-                  <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={18}/></button>
+                  <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={18}/></button>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   <div>
@@ -265,14 +323,14 @@ function Workouts() {
         </div>
 
         <button onClick={() => setShowAddEx(true)} className="w-full bg-blue-50 text-blue-600 py-3 rounded-lg font-bold border border-dashed border-blue-300 flex items-center justify-center gap-2">
-          <Plus size={20} /> Додати вправу до тренування
+          <Plus size={20} /> Додати вправу
         </button>
 
         {showAddEx && (
           <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
             <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
               <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold">Оберіть вправу з довідника</h3>
+                <h3 className="font-bold">Оберіть вправу</h3>
                 <button onClick={() => setShowAddEx(false)} className="text-red-500"><X/></button>
               </div>
               <div className="space-y-2">
@@ -302,7 +360,7 @@ function Workouts() {
               <h3 className="font-bold text-lg text-blue-800">{w.name}</h3>
               <div className="flex gap-4">
                 <button onClick={() => startEdit(w)} className="text-gray-400"><Edit2 size={18}/></button>
-                <button onClick={() => db.workouts.delete(w.id)} className="text-red-400"><Trash2 size={18}/></button>
+                <button onClick={() => db.workouts.delete(w.id)} className="text-red-400 bg-red-50 p-1 rounded"><Trash2 size={18}/></button>
               </div>
             </div>
             <div className="text-sm text-gray-600 space-y-1">
@@ -325,7 +383,7 @@ function Workouts() {
 }
 
 // ==========================================
-// 4. ДОВІДНИК ВПРАВ (CRUD)
+// 4. ДОВІДНИК ВПРАВ
 // ==========================================
 function Exercises() {
   const exercises = useLiveQuery(() => db.exercises.toArray());
@@ -361,10 +419,14 @@ function Exercises() {
 }
 
 // ==========================================
-// 5. ТАЙМЕРИ (ТАБАТА + ФАКТИЧНИЙ ЧАС)
+// 5. ТАЙМЕРИ ТА ВИКОНАННЯ ТРЕНУВАННЯ
 // ==========================================
 function Timers() {
-  const [mode, setMode] = useState<'TABATA' | 'FREE'>('TABATA');
+  const location = useLocation();
+  const navigate = useNavigate();
+  const activeWorkoutData = location.state as { plan: Scheduled, workout: Workout } | null;
+
+  const [mode, setMode] = useState<'TABATA' | 'FREE'>(activeWorkoutData ? 'FREE' : 'TABATA');
   const audioCtx = useRef<AudioContext | null>(null);
 
   const [workTime, setWorkTime] = useState(20);
@@ -427,14 +489,33 @@ function Timers() {
     setIsRunning(!isRunning);
   };
 
-  const formatTime = (seconds: number) => {
-    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
-    const s = (seconds % 60).toString().padStart(2, '0');
-    return `${m}:${s}`;
+  const finishFreeWorkout = async () => {
+    initAudio();
+    setFreePhase('Зупинено');
+    
+    if (activeWorkoutData) {
+      await db.history.add({
+        id: crypto.randomUUID(),
+        date: new Date().toISOString().split('T')[0],
+        workoutName: activeWorkoutData.workout.name,
+        duration: freeTime,
+        items: activeWorkoutData.workout.items
+      });
+      await db.scheduled.delete(activeWorkoutData.plan.id);
+      navigate('/');
+    }
+    setFreeTime(0);
   };
 
   return (
     <div className="p-4 pb-24">
+      {activeWorkoutData && (
+        <div className="bg-blue-100 border border-blue-300 p-3 rounded-lg mb-4 flex justify-between items-center shadow-sm">
+          <span className="font-bold text-blue-800 text-sm">Виконується: {activeWorkoutData.workout.name}</span>
+          <button onClick={() => navigate('/')} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button>
+        </div>
+      )}
+
       <div className="flex bg-gray-200 rounded-lg p-1 mb-6">
         <button className={`flex-1 py-2 font-bold rounded-md ${mode === 'TABATA' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('TABATA')}>Табата</button>
         <button className={`flex-1 py-2 font-bold rounded-md ${mode === 'FREE' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('FREE')}>Фактичний час</button>
@@ -451,7 +532,7 @@ function Timers() {
           )}
           <div className={`w-64 h-64 rounded-full flex flex-col items-center justify-center text-white shadow-lg transition-colors ${phase === 'WORK' ? 'bg-red-500' : phase === 'REST' ? 'bg-green-500' : 'bg-gray-800'}`}>
             <span className="text-2xl font-bold">{phase === 'WORK' ? 'РОБОТА' : phase === 'REST' ? 'ВІДПОЧИНОК' : 'ГОТОВИЙ'}</span>
-            <span className="text-7xl font-mono mt-2">{formatTime(timeLeft)}</span>
+            <span className="text-7xl font-mono mt-2">{formatDuration(timeLeft)}</span>
             {phase !== 'IDLE' && <span className="text-lg mt-2">Цикл {currentRound}/{rounds}</span>}
           </div>
           <button onClick={toggleTabata} className="mt-10 bg-blue-600 text-white px-8 py-4 rounded-xl text-2xl font-bold w-full shadow-lg">{isRunning ? 'ПАУЗА' : phase === 'IDLE' ? 'СТАРТ' : 'ПРОДОВЖИТИ'}</button>
@@ -459,13 +540,16 @@ function Timers() {
         </div>
       ) : (
         <div className="flex flex-col items-center">
-          <div className="text-6xl font-mono my-8">{formatTime(freeTime)}</div>
+          <div className="text-6xl font-mono my-8">{formatDuration(freeTime)}</div>
           <div className="text-xl font-bold mb-8 text-blue-600">{freePhase}</div>
           <div className="grid grid-cols-1 gap-4 w-full">
             <button onClick={() => { initAudio(); setFreePhase('Розминка'); }} className="bg-yellow-400 text-black py-4 rounded-xl font-bold shadow">Почати Розминку</button>
             <button onClick={() => { initAudio(); setFreePhase('Основна'); }} className="bg-red-500 text-white py-4 rounded-xl font-bold shadow">Почати Основну</button>
             <button onClick={() => { initAudio(); setFreePhase('Заминка'); }} className="bg-green-500 text-white py-4 rounded-xl font-bold shadow">Почати Заминку</button>
-            <button onClick={() => { initAudio(); setFreePhase('Зупинено'); setFreeTime(0); }} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4">Завершити</button>
+            
+            <button onClick={finishFreeWorkout} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg border-2 border-transparent active:border-gray-500">
+              {activeWorkoutData ? 'Завершити та Зберегти' : 'Зупинити таймер'}
+            </button>
           </div>
         </div>
       )}
@@ -474,7 +558,7 @@ function Timers() {
 }
 
 // ==========================================
-// 6. СИНХРОНІЗАЦІЯ ДАНИХ ТА ХМАРА
+// 6. СИНХРОНІЗАЦІЯ ДАНИХ
 // ==========================================
 function DataSync() {
   const exportData = async () => {
@@ -519,17 +603,14 @@ function DataSync() {
       <div className="space-y-4">
         <div className="bg-white p-4 rounded-xl border shadow-sm">
           <h3 className="font-bold mb-2">Експорт (Бекап)</h3>
-          <p className="text-xs text-gray-500 mb-4">Збережіть файл з усіма даними на телефон, щоб не втратити історію.</p>
           <button onClick={exportData} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">Вивантажити дані</button>
         </div>
         <div className="bg-white p-4 rounded-xl border shadow-sm">
-          <h3 className="font-bold mb-2">Відновлення з Хмари / Файлу</h3>
-          <p className="text-xs text-gray-500 mb-4">Оберіть раніше збережений JSON файл.</p>
+          <h3 className="font-bold mb-2">Відновлення з файлу</h3>
           <input type="file" accept=".json" onChange={importData} className="w-full text-sm" />
         </div>
         <div className="bg-red-50 p-4 rounded-xl border border-red-200 mt-8">
           <h3 className="font-bold text-red-700 mb-2">Небезпечна зона</h3>
-          <p className="text-xs text-red-500 mb-4">Очистити пам'ять телефона (Дані видаляться).</p>
           <button onClick={clearPhone} className="w-full bg-red-600 text-white py-3 rounded-lg font-bold">Очистити телефон</button>
         </div>
       </div>
@@ -538,25 +619,20 @@ function DataSync() {
 }
 
 // ==========================================
-// 7. НАВІГАЦІЯ ТА ІНІЦІАЛІЗАЦІЯ БАЗИ
+// 7. НАВІГАЦІЯ
 // ==========================================
 export default function App() {
-  // ЦЕЙ БЛОК БУВ ВТРАЧЕНИЙ МИНУЛОГО РАЗУ. ВІН ЖИТТЄВО НЕОБХІДНИЙ ДЛЯ ЗАПОВНЕННЯ БАЗИ
   useEffect(() => {
     const initDb = async () => {
       const exCount = await db.exercises.count();
       if (exCount === 0) {
-        // Зберігаємо вправи і запам'ятовуємо їхні нові ID
         const insertedExercises = initialExercises.map(ex => ({ id: crypto.randomUUID(), ...ex }));
         await db.exercises.bulkAdd(insertedExercises);
-
-        // Тепер формуємо тренування, підставляючи згенеровані ID вправ
         const workoutsToInsert = initialWorkouts.map(w => {
           const items = w.exercises.map(exName => {
             const foundEx = insertedExercises.find(e => e.name === exName);
             return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' };
           }).filter(item => item.exerciseId !== '');
-          
           return { id: crypto.randomUUID(), name: w.name, items, note: '' };
         });
         await db.workouts.bulkAdd(workoutsToInsert);
