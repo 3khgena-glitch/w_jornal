@@ -126,7 +126,7 @@ function CalendarView() {
     <div className="p-2 pb-24">
       <div className="flex justify-between items-center mb-4 px-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v1.5</span>
+          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v1.6</span>
           <div className="flex bg-gray-200 rounded-lg p-1">
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
@@ -598,7 +598,6 @@ function Timers() {
   const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
   const [workoutNote, setWorkoutNote] = useState('');
   
-  // Час фаз
   const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
 
   const beep = (freq: number, duration: number) => {
@@ -725,7 +724,6 @@ function Timers() {
           <div className="text-6xl font-mono mt-4 mb-2">{formatDuration(freeTime)}</div>
           <div className="text-lg font-bold mb-4 text-blue-600 uppercase">{freePhase}</div>
 
-          {/* Лічильники фаз */}
           <div className="w-full flex justify-between bg-white p-3 rounded-xl shadow-sm mb-6 border border-gray-100">
             <div className="text-center w-1/3">
               <div className="text-[10px] text-gray-400 font-bold uppercase">Розминка</div>
@@ -789,10 +787,16 @@ function DataSync() {
       try {
         const data = JSON.parse(event.target?.result as string);
         await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
-          if (data.exercises) await db.exercises.bulkPut(data.exercises);
-          if (data.workouts) await db.workouts.bulkPut(data.workouts);
-          if (data.scheduled) await db.scheduled.bulkPut(data.scheduled);
-          if (data.history) await db.history.bulkPut(data.history);
+          // Очищення перед імпортом для уникнення дублікатів (різні UUID на різних пристроях)
+          await db.exercises.clear();
+          await db.workouts.clear();
+          await db.scheduled.clear();
+          await db.history.clear();
+
+          if (data.exercises) await db.exercises.bulkAdd(data.exercises);
+          if (data.workouts) await db.workouts.bulkAdd(data.workouts);
+          if (data.scheduled) await db.scheduled.bulkAdd(data.scheduled);
+          if (data.history) await db.history.bulkAdd(data.history);
         });
         alert('Дані успішно відновлено! Оновіть сторінку.');
         window.location.reload();
