@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2 } from 'lucide-react';
 import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -60,31 +60,19 @@ const formatDuration = (secs: number) => {
 };
 
 // ==========================================
-// 2. КАЛЕНДАР (МІСЯЦЬ + ТИЖДЕНЬ)
+// 2. КАЛЕНДАР (МАТРИЦЯ + МІСЯЦЬ)
 // ==========================================
 function CalendarView() {
   const navigate = useNavigate();
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [view, setView] = useState<'week' | 'month'>('week');
+  const [view, setView] = useState<'matrix' | 'month'>('matrix');
+  const [dayOffset, setDayOffset] = useState(0); 
   
   const scheduled = useLiveQuery(() => db.scheduled.toArray());
   const historyData = useLiveQuery(() => db.history.toArray());
   const workouts = useLiveQuery(() => db.workouts.toArray());
   
-  const [planModalDate, setPlanModalDate] = useState<string | null>(null);
-
-  const getWeekDays = (date: Date) => {
-    const days = [];
-    const curr = new Date(date);
-    const first = curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1); 
-    const firstDay = new Date(curr.setDate(first));
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(firstDay);
-      d.setDate(firstDay.getDate() + i);
-      days.push(d);
-    }
-    return days;
-  };
+  const [activePlanAction, setActivePlanAction] = useState<Scheduled | null>(null);
 
   const getMonthDays = (year: number, month: number) => {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
@@ -95,40 +83,43 @@ function CalendarView() {
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const handlePlan = async (workoutId: string) => {
-    if (planModalDate) {
-      await db.scheduled.add({ id: crypto.randomUUID(), date: planModalDate, workoutId, isCompleted: false });
-      setPlanModalDate(null);
+  const visibleDays = Array.from({ length: 5 }).map((_, i) => {
+    const d = new Date();
+    d.setDate(d.getDate() + dayOffset + i - 2); 
+    return d;
+  });
+
+  const handleCellClick = async (dStr: string, workout: Workout, isPlanned: boolean, planObj?: Scheduled) => {
+    if (isPlanned && planObj) {
+      setActivePlanAction(planObj);
+    } else {
+      await db.scheduled.add({ id: crypto.randomUUID(), date: dStr, workoutId: workout.id, isCompleted: false });
     }
   };
 
   const handleMarkDone = async (plan: Scheduled, workoutName: string, items: WorkoutItem[]) => {
-    await db.history.add({
-      id: crypto.randomUUID(),
-      date: plan.date,
-      workoutName: workoutName,
-      duration: 0, 
-      items: items
-    });
+    await db.history.add({ id: crypto.randomUUID(), date: plan.date, workoutName, duration: 0, items });
     await db.scheduled.delete(plan.id);
+    setActivePlanAction(null);
   };
 
   const handleStart = (plan: Scheduled, workout: Workout) => {
+    setActivePlanAction(null);
     navigate('/timer', { state: { plan, workout } });
   };
 
   return (
-    <div className="p-4 pb-24">
-      <div className="flex justify-between items-center mb-4">
+    <div className="p-2 pb-24">
+      <div className="flex justify-between items-center mb-4 px-2">
         <div className="flex bg-gray-200 rounded-lg p-1">
-          <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'week' ? 'bg-white shadow' : ''}`} onClick={() => setView('week')}>Тиждень</button>
+          <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
           <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
         </div>
-        <button onClick={() => setCurrentDate(new Date())} className="text-blue-600 font-bold text-sm bg-blue-50 px-3 py-1 rounded">Сьогодні</button>
+        <button onClick={() => { setCurrentDate(new Date()); setDayOffset(0); }} className="text-blue-600 font-bold text-sm bg-blue-50 px-3 py-1 rounded">Сьогодні</button>
       </div>
 
       {view === 'month' && (
-        <div className="bg-white rounded-xl shadow-sm p-4">
+        <div className="bg-white rounded-xl shadow-sm p-4 mx-2">
           <div className="flex gap-2 mb-4">
             <select value={currentDate.getMonth()} onChange={e => { const d = new Date(currentDate); d.setMonth(Number(e.target.value)); setCurrentDate(d); }} className="p-2 border rounded font-bold bg-gray-50 flex-1">
               {Array.from({length: 12}).map((_, i) => <option key={i} value={i}>{new Date(2000, i).toLocaleDateString('uk-UA', {month: 'long'})}</option>)}
@@ -151,14 +142,11 @@ function CalendarView() {
               let textClass = 'text-gray-700';
               let indicator = null;
 
-              // Виконані - Зелений фон
               if (hists.length > 0) { 
                 bgClass = 'bg-green-100 border-green-300'; 
                 textClass = 'text-green-800 font-bold'; 
                 indicator = <div className="text-[10px]">✓</div>;
-              } 
-              // Заплановані - Без заливки, тільки літера
-              else if (plans.length > 0) { 
+              } else if (plans.length > 0) { 
                 bgClass = 'bg-white border-gray-200 shadow-sm'; 
                 textClass = 'text-gray-900 font-bold'; 
                 const w = workouts?.find(w => w.id === plans[0].workoutId);
@@ -166,10 +154,8 @@ function CalendarView() {
                 indicator = <div className="text-[10px] text-blue-600 font-bold leading-none mt-1">{firstLetter}</div>;
               }
               
-              const isToday = dStr === todayStr;
-
               return (
-                <div key={dStr} onClick={() => setPlanModalDate(dStr)} className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm cursor-pointer border ${bgClass} ${textClass} ${isToday ? 'ring-2 ring-blue-500' : ''}`}>
+                <div key={dStr} className={`aspect-square flex flex-col items-center justify-center rounded-md text-sm border ${bgClass} ${textClass} ${dStr === todayStr ? 'ring-2 ring-blue-500' : ''}`}>
                   <span>{day.getDate()}</span>
                   {indicator}
                 </div>
@@ -179,72 +165,118 @@ function CalendarView() {
         </div>
       )}
 
-      {view === 'week' && (
-        <div className="space-y-3">
-          <div className="font-bold text-lg mb-2 capitalize">{currentDate.toLocaleDateString('uk-UA', { month: 'long', year: 'numeric' })}</div>
-          {getWeekDays(currentDate).map(day => {
-            const dStr = day.toISOString().split('T')[0];
-            const isToday = dStr === todayStr;
-            const isPast = dStr < todayStr;
-            
-            const plans = scheduled?.filter(s => s.date === dStr) || [];
-            const hists = historyData?.filter(h => h.date === dStr) || [];
-            
-            return (
-              <div key={dStr} className={`bg-white rounded-xl shadow-sm p-3 border-l-4 ${isToday ? 'border-blue-500 ring-1 ring-blue-100' : 'border-transparent'}`}>
-                <div className="flex justify-between items-center mb-2">
-                  <div className="flex items-baseline gap-2">
-                    <span className={`text-xl font-bold ${isToday ? 'text-blue-600' : ''}`}>{day.getDate()}</span>
-                    <span className="text-sm text-gray-500 capitalize">{day.toLocaleDateString('uk-UA', { weekday: 'short' })}</span>
+      {view === 'matrix' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto relative">
+          <table className="w-full text-left border-collapse min-w-max">
+            <thead>
+              <tr>
+                <th className="sticky left-0 bg-white z-10 p-2 border-b border-r min-w-[100px] max-w-[120px]">
+                  <div className="flex justify-between items-center bg-gray-100 rounded-md p-1">
+                    <button onClick={() => setDayOffset(d => d - 1)} className="px-2 py-1 bg-white rounded shadow-sm text-gray-600 active:bg-gray-200"><ChevronLeft size={16}/></button>
+                    <span className="text-[9px] font-bold text-gray-500">ПЕРІОД</span>
+                    <button onClick={() => setDayOffset(d => d + 1)} className="px-2 py-1 bg-white rounded shadow-sm text-gray-600 active:bg-gray-200"><ChevronRight size={16}/></button>
                   </div>
-                  <button onClick={() => setPlanModalDate(dStr)} className="bg-blue-50 text-blue-600 p-1.5 rounded"><Plus size={18} /></button>
-                </div>
-
-                {hists.map(h => (
-                  <div key={h.id} className="mt-2 p-2 bg-green-50 border border-green-200 rounded flex justify-between items-center">
-                    <span className="font-bold text-sm text-green-800">✓ {h.workoutName}</span>
-                    <span className="text-xs font-mono text-green-700 bg-green-100 px-2 py-1 rounded">
-                      {formatDuration(h.duration)}
-                    </span>
-                  </div>
-                ))}
-
-                {plans.map(p => {
-                  const w = workouts?.find(w => w.id === p.workoutId);
+                </th>
+                {visibleDays.map(day => {
+                  const dStr = day.toISOString().split('T')[0];
+                  const isToday = dStr === todayStr;
                   return (
-                    <div key={p.id} className="mt-2 p-2 bg-gray-50 rounded border flex justify-between items-center">
-                      <span className="font-bold text-sm">{w?.name || 'Видалене тренування'}</span>
-                      <div className="flex gap-2">
-                        {isPast ? (
-                          <button onClick={() => w && handleMarkDone(p, w.name, w.items)} className="text-[10px] bg-gray-500 text-white px-3 py-1 rounded font-bold">ВИКОНАНО</button>
-                        ) : (
-                          <button onClick={() => w && handleStart(p, w)} className="text-[10px] bg-blue-500 text-white px-4 py-1 rounded font-bold">СТАРТ</button>
-                        )}
-                        <button onClick={() => db.scheduled.delete(p.id)} className="text-red-500 bg-red-50 p-1 rounded"><Trash2 size={14}/></button>
+                    <th key={dStr} className={`p-2 border-b text-center min-w-[55px] ${isToday ? 'bg-blue-50' : ''}`}>
+                      <div className={`text-[10px] uppercase ${isToday ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>
+                        {day.toLocaleDateString('uk-UA', { weekday: 'short' })}
                       </div>
-                    </div>
+                      <div className={`text-sm font-bold ${isToday ? 'text-blue-700' : 'text-gray-800'}`}>
+                        {day.getDate()}.{(day.getMonth() + 1).toString().padStart(2, '0')}
+                      </div>
+                    </th>
                   );
                 })}
-              </div>
-            );
-          })}
+              </tr>
+            </thead>
+            <tbody>
+              {workouts?.map(w => (
+                <tr key={w.id} className="hover:bg-gray-50">
+                  <td className="sticky left-0 bg-white z-10 p-2 border-b border-r text-[10px] font-bold text-gray-700 leading-tight truncate max-w-[120px]" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                    {w.name}
+                  </td>
+                  {visibleDays.map(day => {
+                    const dStr = day.toISOString().split('T')[0];
+                    const isToday = dStr === todayStr;
+                    const hist = historyData?.find(h => h.date === dStr && h.workoutName === w.name);
+                    const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
+
+                    return (
+                      <td key={dStr} className={`p-1 border-b text-center align-middle border-l border-gray-100 ${isToday && !hist ? 'bg-blue-50/50' : ''}`}>
+                        {hist ? (
+                          <div 
+                            onClick={() => {
+                              if(window.confirm('Видалити це виконане тренування з історії?')) {
+                                db.history.delete(hist.id);
+                              }
+                            }}
+                            className="bg-green-100 text-green-800 text-[10px] font-bold py-1.5 px-1 rounded shadow-sm flex flex-col items-center cursor-pointer hover:bg-red-100 hover:text-red-600 transition-colors"
+                          >
+                            <span className="opacity-70 text-[8px] mb-0.5">ЧАС</span>
+                            {formatDuration(hist.duration)}
+                          </div>
+                        ) : plan ? (
+                          <button onClick={() => handleCellClick(dStr, w, true, plan)} className="bg-blue-500 text-white text-[10px] font-bold py-1.5 px-1 rounded w-full shadow-sm active:bg-blue-600">
+                            ПЛАН
+                          </button>
+                        ) : (
+                          <div onClick={() => handleCellClick(dStr, w, false)} className="h-8 w-full rounded flex items-center justify-center hover:bg-gray-100 cursor-pointer text-gray-300 hover:text-gray-400">
+                            <Plus size={14} />
+                          </div>
+                        )}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
-      {planModalDate && (
+      {/* Модалка дій над запланованим тренуванням */}
+      {activePlanAction && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
-          <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="font-bold text-lg">План на {planModalDate}</h3>
-              <button onClick={() => setPlanModalDate(null)} className="text-red-500"><X /></button>
+          <div className="bg-white w-full rounded-t-2xl p-4">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="font-bold text-lg text-gray-800">Дія з планом</h3>
+              <button onClick={() => setActivePlanAction(null)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
             </div>
-            <div className="space-y-2">
-              {workouts?.length === 0 && <p className="text-gray-500 text-center">База тренувань порожня.</p>}
-              {workouts?.map(w => (
-                <button key={w.id} onClick={() => handlePlan(w.id)} className="w-full text-left p-3 bg-gray-50 rounded-lg font-bold border">
-                  {w.name}
-                </button>
-              ))}
+            
+            <div className="space-y-3">
+              <button 
+                onClick={() => {
+                  const w = workouts?.find(x => x.id === activePlanAction.workoutId);
+                  if (w) handleStart(activePlanAction, w);
+                }} 
+                className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold flex items-center justify-center gap-2 shadow-sm"
+              >
+                <Play size={20} /> Почати тренування (Таймер)
+              </button>
+              
+              <button 
+                onClick={() => {
+                  const w = workouts?.find(x => x.id === activePlanAction.workoutId);
+                  if (w) handleMarkDone(activePlanAction, w.name, w.items);
+                }} 
+                className="w-full bg-gray-100 text-gray-800 p-4 rounded-xl font-bold flex items-center justify-center gap-2 border border-gray-300"
+              >
+                <CheckCircle2 size={20} className="text-gray-600" /> Відмітити як ВИКОНАНО (--:--)
+              </button>
+
+              <button 
+                onClick={async () => {
+                  await db.scheduled.delete(activePlanAction.id);
+                  setActivePlanAction(null);
+                }} 
+                className="w-full bg-red-50 text-red-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2 mt-4"
+              >
+                <Trash2 size={20} /> Видалити з плану
+              </button>
             </div>
           </div>
         </div>
@@ -329,13 +361,13 @@ function Workouts() {
         {showAddEx && (
           <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
             <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-bold">Оберіть вправу</h3>
-                <button onClick={() => setShowAddEx(false)} className="text-red-500"><X/></button>
+              <div className="flex justify-between items-center mb-4 border-b pb-2">
+                <h3 className="font-bold text-lg">Оберіть вправу</h3>
+                <button onClick={() => setShowAddEx(false)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
               </div>
               <div className="space-y-2">
                 {exercises?.map(ex => (
-                  <button key={ex.id} onClick={() => { setItems([...items, { exerciseId: ex.id, weight: '', band: '', reps: '', note: '' }]); setShowAddEx(false); }} className="w-full text-left p-3 bg-gray-50 border rounded font-medium">
+                  <button key={ex.id} onClick={() => { setItems([...items, { exerciseId: ex.id, weight: '', band: '', reps: '', note: '' }]); setShowAddEx(false); }} className="w-full text-left p-3 bg-gray-50 border rounded font-medium active:bg-gray-200">
                     {ex.name}
                   </button>
                 ))}
