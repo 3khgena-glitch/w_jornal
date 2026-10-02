@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { BrowserRouter, Routes, Route, Link, useNavigate, useLocation } from 'react-router-dom';
-import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2, Info } from 'lucide-react';
+import { Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings, Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2 } from 'lucide-react';
 import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 
@@ -59,6 +59,14 @@ const formatDuration = (secs: number) => {
   return `${m}:${s.toString().padStart(2, '0')}`;
 };
 
+// Жесткая фиксация локальной даты (чтобы избежать смещений из-за часовых поясов)
+const getLocalDateString = (d: Date) => {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 // ==========================================
 // 2. КАЛЕНДАР (МАТРИЦЯ + МІСЯЦЬ)
 // ==========================================
@@ -72,7 +80,6 @@ function CalendarView() {
   const historyData = useLiveQuery(() => db.history.toArray());
   const workouts = useLiveQuery(() => db.workouts.toArray());
   
-  // Стан для модалок
   const [planModalDate, setPlanModalDate] = useState<string | null>(null);
   const [dayDetailsDate, setDayDetailsDate] = useState<string | null>(null);
   const [activePlanAction, setActivePlanAction] = useState<Scheduled | null>(null);
@@ -81,19 +88,6 @@ function CalendarView() {
   const [planNote, setPlanNote] = useState('');
   useEffect(() => { if (!activePlanAction) setPlanNote(''); }, [activePlanAction]);
 
-  const getWeekDays = (date: Date) => {
-    const days = [];
-    const curr = new Date(date);
-    const first = curr.getDate() - curr.getDay() + (curr.getDay() === 0 ? -6 : 1); 
-    const firstDay = new Date(curr.setDate(first));
-    for (let i = 0; i < 7; i++) {
-      const d = new Date(firstDay);
-      d.setDate(firstDay.getDate() + i);
-      days.push(d);
-    }
-    return days;
-  };
-
   const getMonthDays = (year: number, month: number) => {
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     const days = [];
@@ -101,7 +95,7 @@ function CalendarView() {
     return days;
   };
 
-  const todayStr = new Date().toISOString().split('T')[0];
+  const todayStr = getLocalDateString(new Date());
 
   const visibleDays = Array.from({ length: 5 }).map((_, i) => {
     const d = new Date();
@@ -161,7 +155,7 @@ function CalendarView() {
           <div className="grid grid-cols-7 gap-1">
             {Array.from({ length: (new Date(currentDate.getFullYear(), currentDate.getMonth(), 1).getDay() + 6) % 7 }).map((_, i) => <div key={`e-${i}`} />)}
             {getMonthDays(currentDate.getFullYear(), currentDate.getMonth()).map(day => {
-              const dStr = day.toISOString().split('T')[0];
+              const dStr = getLocalDateString(day);
               const plans = scheduled?.filter(s => s.date === dStr) || [];
               const hists = historyData?.filter(h => h.date === dStr) || [];
               
@@ -205,7 +199,7 @@ function CalendarView() {
                   </div>
                 </th>
                 {visibleDays.map(day => {
-                  const dStr = day.toISOString().split('T')[0];
+                  const dStr = getLocalDateString(day);
                   const isToday = dStr === todayStr;
                   return (
                     <th key={dStr} className={`p-2 border-b text-center min-w-[55px] ${isToday ? 'bg-blue-50' : ''}`}>
@@ -227,7 +221,7 @@ function CalendarView() {
                     {w.name}
                   </td>
                   {visibleDays.map(day => {
-                    const dStr = day.toISOString().split('T')[0];
+                    const dStr = getLocalDateString(day);
                     const isToday = dStr === todayStr;
                     const hist = historyData?.find(h => h.date === dStr && h.workoutName === w.name);
                     const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
@@ -258,7 +252,7 @@ function CalendarView() {
         </div>
       )}
 
-      {/* Модалка: Деталі дня (відкривається з Місяця) */}
+      {/* Модалка: Деталі дня */}
       {dayDetailsDate && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto">
@@ -306,32 +300,7 @@ function CalendarView() {
         </div>
       )}
 
-      {/* Модалка: Інформація про виконане тренування (відкривається з Матриці) */}
-      {activeHistoryAction && (
-        <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
-          <div className="bg-white w-full rounded-t-2xl p-4">
-            <div className="flex justify-between items-center mb-4 border-b pb-2">
-              <h3 className="font-bold text-lg text-green-800 flex items-center gap-2"><CheckCircle2/> {activeHistoryAction.workoutName}</h3>
-              <button onClick={() => setActiveHistoryAction(null)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
-            </div>
-            <div className="mb-4">
-              <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Час виконання</div>
-              <div className="text-3xl font-mono text-gray-800">{formatDuration(activeHistoryAction.duration)}</div>
-            </div>
-            {activeHistoryAction.note && (
-              <div className="mb-6 bg-gray-50 p-3 rounded-xl border border-gray-100">
-                <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Примітка</div>
-                <div className="text-sm text-gray-800 whitespace-pre-wrap">{activeHistoryAction.note}</div>
-              </div>
-            )}
-            <button onClick={() => { db.history.delete(activeHistoryAction.id); setActiveHistoryAction(null); }} className="w-full bg-red-100 text-red-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2">
-              <Trash2 size={20} /> Видалити з історії
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Модалка: Дії з планом (відкривається з Матриці або з деталей дня) */}
+      {/* Модалка: Дії з планом */}
       {activePlanAction && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4">
@@ -365,7 +334,32 @@ function CalendarView() {
         </div>
       )}
 
-      {/* Модалка: Вибір тренування з бази для планування */}
+      {/* Модалка: Інформація про виконане тренування з Матриці */}
+      {activeHistoryAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
+          <div className="bg-white w-full rounded-t-2xl p-4">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="font-bold text-lg text-green-800 flex items-center gap-2"><CheckCircle2/> {activeHistoryAction.workoutName}</h3>
+              <button onClick={() => setActiveHistoryAction(null)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
+            </div>
+            <div className="mb-4">
+              <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Час виконання</div>
+              <div className="text-3xl font-mono text-gray-800">{formatDuration(activeHistoryAction.duration)}</div>
+            </div>
+            {activeHistoryAction.note && (
+              <div className="mb-6 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Примітка</div>
+                <div className="text-sm text-gray-800 whitespace-pre-wrap">{activeHistoryAction.note}</div>
+              </div>
+            )}
+            <button onClick={() => { db.history.delete(activeHistoryAction.id); setActiveHistoryAction(null); }} className="w-full bg-red-100 text-red-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2">
+              <Trash2 size={20} /> Видалити з історії
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Модалка: Вибір тренування з бази */}
       {planModalDate && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
@@ -632,7 +626,7 @@ function Timers() {
     if (activeWorkoutData) {
       await db.history.add({
         id: crypto.randomUUID(),
-        date: new Date().toISOString().split('T')[0],
+        date: getLocalDateString(new Date()),
         workoutName: activeWorkoutData.workout.name,
         duration: freeTime,
         items: activeWorkoutData.workout.items,
@@ -712,7 +706,7 @@ function DataSync() {
     const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray() };
     const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = `w_jornal_backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.href = URL.createObjectURL(blob); a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`;
     a.click();
   };
 
