@@ -624,9 +624,117 @@ function Timers() {
 }
 
 // ==========================================
-// 6. СИНХРОНІЗАЦІЯ ДАНИХ ТА НАВІГАЦІЯ (без змін)
+// 6. СИНХРОНІЗАЦІЯ ДАНИХ
+// ==========================================
+function DataSync() {
+  const exportData = async () => {
+    const data = {
+      exercises: await db.exercises.toArray(),
+      workouts: await db.workouts.toArray(),
+      scheduled: await db.scheduled.toArray(),
+      history: await db.history.toArray()
+    };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`;
+    a.click();
+  };
+
+  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const data = JSON.parse(event.target?.result as string);
+        await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
+          await db.exercises.clear();
+          await db.workouts.clear();
+          await db.scheduled.clear();
+          await db.history.clear();
+          if (data.exercises) await db.exercises.bulkAdd(data.exercises);
+          if (data.workouts) await db.workouts.bulkAdd(data.workouts);
+          if (data.scheduled) await db.scheduled.bulkAdd(data.scheduled);
+          if (data.history) await db.history.bulkAdd(data.history);
+        });
+        alert('Дані успішно відновлено! Оновіть сторінку.');
+        window.location.reload();
+      } catch (err) { alert('Помилка читання файлу'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const clearPhone = async () => {
+    if (window.confirm('УВАГА! Всі локальні дані будуть видалені. Ви зробили бекап?')) {
+      await db.delete();
+      alert('Телефон очищено. Додаток перезавантажиться.');
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="p-4 pb-24">
+      <h2 className="text-2xl font-bold mb-6">Хмара / Дані</h2>
+      <div className="space-y-4">
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <h3 className="font-bold mb-2">Експорт (Бекап)</h3>
+          <button onClick={exportData} className="w-full bg-blue-600 text-white py-3 rounded-lg font-bold">Вивантажити дані</button>
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <h3 className="font-bold mb-2">Відновлення з файлу</h3>
+          <input type="file" accept=".json" onChange={importData} className="w-full text-sm" />
+        </div>
+        <div className="bg-red-50 p-4 rounded-xl border border-red-200 mt-8">
+          <h3 className="font-bold text-red-700 mb-2">Небезпечна зона</h3>
+          <button onClick={clearPhone} className="w-full bg-red-600 text-white py-3 rounded-lg font-bold">Очистити телефон</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 7. НАВІГАЦІЯ
 // ==========================================
 export default function App() {
-  // ... Залишається стандартним[cite: 1]
-  return <div>Код синхронізації та роутингу.</div>;
+  useEffect(() => {
+    const initDb = async () => {
+      const exCount = await db.exercises.count();
+      if (exCount === 0) {
+        const insertedExercises = initialExercises.map(ex => ({ id: crypto.randomUUID(), ...ex }));
+        await db.exercises.bulkAdd(insertedExercises);
+        const workoutsToInsert = initialWorkouts.map(w => {
+          const items = w.exercises.map(exName => {
+            const foundEx = insertedExercises.find(e => e.name === exName);
+            return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' };
+          }).filter(item => item.exerciseId !== '');
+          return { id: crypto.randomUUID(), name: w.name, items, note: '' };
+        });
+        await db.workouts.bulkAdd(workoutsToInsert);
+      }
+    };
+    initDb();
+  }, []);
+
+  return (
+    <BrowserRouter basename="/w_jornal">
+      <div className="min-h-screen bg-gray-50 font-sans">
+        <Routes>
+          <Route path="/" element={<CalendarView />} />
+          <Route path="/workouts" element={<Workouts />} />
+          <Route path="/exercises" element={<Exercises />} />
+          <Route path="/timer" element={<Timers />} />
+          <Route path="/data" element={<DataSync />} />
+        </Routes>
+        <nav className="fixed bottom-0 w-full bg-white border-t flex justify-between px-2 py-3 pb-6 shadow-[0_-5px_15px_-10px_rgba(0,0,0,0.1)] z-50">
+          <Link to="/" className="flex flex-col items-center text-gray-600 w-1/5"><CalendarIcon size={22} /><span className="text-[9px] mt-1 font-bold uppercase">План</span></Link>
+          <Link to="/workouts" className="flex flex-col items-center text-gray-600 w-1/5"><Activity size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Тренування</span></Link>
+          <Link to="/exercises" className="flex flex-col items-center text-gray-600 w-1/5"><Dumbbell size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Вправи</span></Link>
+          <Link to="/timer" className="flex flex-col items-center text-gray-600 w-1/5"><TimerIcon size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Таймер</span></Link>
+          <Link to="/data" className="flex flex-col items-center text-gray-600 w-1/5"><Settings size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Дані</span></Link>
+        </nav>
+      </div>
+    </BrowserRouter>
+  );
 }
