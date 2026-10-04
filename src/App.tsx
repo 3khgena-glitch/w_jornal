@@ -10,7 +10,6 @@ import { useLiveQuery } from 'dexie-react-hooks';
 export interface Exercise { id: string; name: string; category: string; muscle?: string; }
 export interface WorkoutItem { exerciseId: string; weight: string; band: string; reps: string; note: string; exNameSnapshot?: string; exMuscleSnapshot?: string; }
 export interface Workout { id: string; name: string; items: WorkoutItem[]; note: string; muscle?: string; }
-// Додано name та items до Scheduled для індивідуального планування
 export interface Scheduled { id: string; date: string; workoutId: string; isCompleted: boolean; name?: string; items?: WorkoutItem[]; }
 export interface History { id: string; date: string; workoutName: string; duration: number; items: WorkoutItem[]; note?: string; }
 
@@ -93,7 +92,6 @@ function CalendarView() {
   const [activePlanAction, setActivePlanAction] = useState<Scheduled | null>(null);
   const [activeHistoryAction, setActiveHistoryAction] = useState<History | null>(null);
 
-  // Стан для редагування плану перед збереженням (НОВА ФУНКЦІЯ)
   const [planSetup, setPlanSetup] = useState<{
     date: string;
     baseWorkoutId: string;
@@ -188,7 +186,6 @@ function CalendarView() {
         <button onClick={() => { setCurrentDate(new Date()); setDayOffset(0); }} className="text-blue-600 font-bold text-sm bg-blue-50 px-3 py-1 rounded">Сьогодні</button>
       </div>
 
-      {/* МІСЯЦЬ */}
       {view === 'month' && (
         <div className="bg-white rounded-xl shadow-sm p-4 mx-2">
           <div className="flex gap-2 mb-4">
@@ -247,7 +244,6 @@ function CalendarView() {
         </div>
       )}
 
-      {/* МАТРИЦЯ */}
       {view === 'matrix' && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto relative">
           <table className="w-full text-left border-collapse min-w-max">
@@ -313,7 +309,6 @@ function CalendarView() {
         </div>
       )}
 
-      {/* МОДАЛКА: Редагування плану перед збереженням */}
       {planSetup && (
         <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-[110] p-2 pb-16">
           <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl max-h-[90vh] flex flex-col">
@@ -353,7 +348,6 @@ function CalendarView() {
               <button onClick={savePlanSetup} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold flex justify-center items-center gap-2"><Save size={18}/> Зберегти план</button>
             </div>
 
-            {/* Вкладена модалка: Пошук вправи для плану */}
             {planSetup.showAddEx && (
               <div className="absolute inset-0 bg-white rounded-2xl flex flex-col p-4 z-20">
                 <div className="flex justify-between items-center mb-4 border-b pb-2">
@@ -377,7 +371,6 @@ function CalendarView() {
         </div>
       )}
 
-      {/* МОДАЛКА: Деталі дня (Історія + Плани) */}
       {dayDetailsDate && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto">
@@ -417,7 +410,6 @@ function CalendarView() {
         </div>
       )}
 
-      {/* МОДАЛКА: Дії з планом (після кліку на план у матриці) */}
       {activePlanAction && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4">
@@ -446,7 +438,30 @@ function CalendarView() {
         </div>
       )}
 
-      {/* Модалки: Історія та Вибір з бази - залишені стандартними з v1.8 */}
+      {activeHistoryAction && (
+        <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
+          <div className="bg-white w-full rounded-t-2xl p-4">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="font-bold text-lg text-green-800 flex items-center gap-2"><CheckCircle2/> {activeHistoryAction.workoutName}</h3>
+              <button onClick={() => setActiveHistoryAction(null)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
+            </div>
+            <div className="mb-4">
+              <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Час виконання</div>
+              <div className="text-3xl font-mono text-gray-800">{formatDuration(activeHistoryAction.duration)}</div>
+            </div>
+            {activeHistoryAction.note && (
+              <div className="mb-6 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                <div className="text-xs text-gray-500 font-bold mb-1 uppercase">Примітка</div>
+                <div className="text-sm text-gray-800 whitespace-pre-wrap">{activeHistoryAction.note}</div>
+              </div>
+            )}
+            <button onClick={() => { db.history.delete(activeHistoryAction.id); setActiveHistoryAction(null); }} className="w-full bg-red-100 text-red-600 p-4 rounded-xl font-bold flex items-center justify-center gap-2">
+              <Trash2 size={20} /> Видалити з історії
+            </button>
+          </div>
+        </div>
+      )}
+
       {planModalDate && (
         <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
@@ -467,18 +482,230 @@ function CalendarView() {
 }
 
 // ==========================================
-// 3. РЕДАКТОР ШАБЛОНІВ ТРЕНУВАНЬ (без змін)
+// 3. РЕДАКТОР ШАБЛОНІВ ТРЕНУВАНЬ
 // ==========================================
 function Workouts() {
-   // ... (Залишається ідентичним попередній версії з muscle. Щоб не дублювати 200 рядків, тут використовується стандартний код з вашого файлу[cite: 1] та моєї попередньої відповіді).
-   return <div>Код секції Workouts залишається без змін (з полем muscle).</div>;
+  const workouts = useLiveQuery(() => db.workouts.toArray());
+  const exercises = useLiveQuery(() => db.exercises.toArray());
+  const [editingId, setEditingId] = useState<string | null>(null);
+
+  const [name, setName] = useState('');
+  const [muscle, setMuscle] = useState('Загальна');
+  const [items, setItems] = useState<WorkoutItem[]>([]);
+  const [showAddEx, setShowAddEx] = useState(false);
+  const [exSearch, setExSearch] = useState('');
+
+  const startEdit = (w: Workout | null) => {
+    if (w) { setEditingId(w.id); setName(w.name); setMuscle(w.muscle || 'Загальна'); setItems(w.items || []); }
+    else { setEditingId('new'); setName(''); setMuscle('Загальна'); setItems([]); }
+  };
+
+  const saveWorkout = async () => {
+    if (!name.trim()) return;
+    const data = { name, muscle, items, note: '' };
+    if (editingId === 'new') await db.workouts.add({ id: crypto.randomUUID(), ...data });
+    else if (editingId) await db.workouts.update(editingId, data);
+    setEditingId(null);
+  };
+
+  const updateItem = (index: number, field: keyof WorkoutItem, value: string) => {
+    const newItems = [...items]; newItems[index] = { ...newItems[index], [field]: value }; setItems(newItems);
+  };
+
+  const moveItemUp = (index: number) => {
+    if (index === 0) return;
+    const newItems = [...items]; [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]; setItems(newItems);
+  };
+
+  const moveItemDown = (index: number) => {
+    if (index === items.length - 1) return;
+    const newItems = [...items]; [newItems[index + 1], newItems[index]] = [newItems[index], newItems[index + 1]]; setItems(newItems);
+  };
+
+  if (editingId) {
+    const filteredExs = exercises?.filter(ex => 
+      ex.name.toLowerCase().includes(exSearch.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(exSearch.toLowerCase()))
+    ).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
+
+    return (
+      <div className="p-4 pb-24">
+        <div className="flex justify-between items-center mb-4">
+          <button onClick={() => setEditingId(null)} className="text-gray-500 font-bold">Скасувати</button>
+          <button onClick={saveWorkout} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex gap-2"><Save size={20}/> Зберегти</button>
+        </div>
+        
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-3 font-bold text-lg shadow-sm" />
+        <select value={muscle} onChange={e => setMuscle(e.target.value)} className="w-full p-3 border rounded-lg mb-6 shadow-sm bg-white font-medium text-gray-700">
+          {MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}
+        </select>
+        
+        <div className="space-y-4 mb-6">
+          {items.map((item, idx) => {
+            const ex = exercises?.find(e => e.id === item.exerciseId);
+            const exName = ex?.name || 'Невідома вправа';
+            const exMuscle = ex?.muscle || 'Загальна';
+            return (
+              <div key={idx} className="bg-white p-3 rounded-lg shadow-sm border border-gray-200">
+                <div className="flex justify-between items-start mb-3">
+                  <div>
+                    <div className="font-bold text-blue-800 leading-tight pr-2">{exName}</div>
+                    <div className="text-[10px] text-gray-400 font-bold uppercase">{exMuscle}</div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button onClick={() => moveItemUp(idx)} disabled={idx === 0} className="text-gray-500 disabled:opacity-20 p-1 bg-gray-100 rounded"><ChevronUp size={18}/></button>
+                    <button onClick={() => moveItemDown(idx)} disabled={idx === items.length - 1} className="text-gray-500 disabled:opacity-20 p-1 bg-gray-100 rounded"><ChevronDown size={18}/></button>
+                    <button onClick={() => setItems(items.filter((_, i) => i !== idx))} className="text-red-500 bg-red-50 p-1 rounded ml-2"><Trash2 size={18}/></button>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  <div><label className="text-[10px] text-gray-500 font-bold uppercase">Вага</label><input value={item.weight} onChange={e => updateItem(idx, 'weight', e.target.value)} placeholder="24 кг" className="w-full p-2 border rounded text-sm bg-gray-50" /></div>
+                  <div><label className="text-[10px] text-gray-500 font-bold uppercase">Еспандер</label><input value={item.band} onChange={e => updateItem(idx, 'band', e.target.value)} placeholder="Червоний" className="w-full p-2 border rounded text-sm bg-gray-50" /></div>
+                  <div><label className="text-[10px] text-gray-500 font-bold uppercase">Повтори</label><input value={item.reps} onChange={e => updateItem(idx, 'reps', e.target.value)} placeholder="10-5-10" className="w-full p-2 border rounded text-sm bg-gray-50" /></div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <button onClick={() => { setShowAddEx(true); setExSearch(''); }} className="w-full bg-blue-50 text-blue-600 py-3 rounded-lg font-bold border border-dashed border-blue-300 flex items-center justify-center gap-2">
+          <Plus size={20} /> Додати вправу
+        </button>
+
+        {showAddEx && (
+          <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
+            <div className="bg-white w-full rounded-t-2xl p-4 h-[80vh] flex flex-col">
+              <div className="flex justify-between items-center mb-4 border-b pb-2 shrink-0">
+                <h3 className="font-bold text-lg">Оберіть вправу</h3>
+                <button onClick={() => setShowAddEx(false)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20}/></button>
+              </div>
+              <div className="mb-3 shrink-0 relative">
+                <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+                <input value={exSearch} onChange={e => setExSearch(e.target.value)} placeholder="Пошук (назва або група)..." className="w-full p-2 pl-10 border rounded-lg shadow-sm bg-gray-50" />
+              </div>
+              <div className="space-y-2 overflow-y-auto flex-1 pb-4">
+                {filteredExs.map(ex => (
+                  <button key={ex.id} onClick={() => { setItems([...items, { exerciseId: ex.id, weight: '', band: '', reps: '', note: '' }]); setShowAddEx(false); }} className="w-full text-left p-3 bg-gray-50 border rounded font-medium active:bg-gray-200 flex justify-between items-center">
+                    <span>{ex.name}</span>
+                    <span className="text-[10px] text-gray-400 uppercase font-bold">{ex.muscle || 'Загальна'}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  const sortedWorkouts = workouts?.slice().sort((a, b) => {
+    const m1 = a.muscle || 'Загальна'; const m2 = b.muscle || 'Загальна';
+    if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA');
+    return a.name.localeCompare(b.name, 'uk-UA');
+  });
+
+  return (
+    <div className="p-4 pb-24">
+      <div className="flex justify-between items-center mb-6">
+        <h2 className="text-2xl font-bold">Шаблони тренувань</h2>
+        <button onClick={() => startEdit(null)} className="bg-blue-600 text-white p-2 rounded-lg shadow-sm"><Plus /></button>
+      </div>
+      <div className="space-y-4">
+        {sortedWorkouts?.map(w => (
+          <div key={w.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">{w.muscle || 'Загальна'}</div>
+                <h3 className="font-bold text-lg text-blue-800">{w.name}</h3>
+              </div>
+              <div className="flex gap-4 mt-1">
+                <button onClick={() => startEdit(w)} className="text-gray-400"><Edit2 size={18}/></button>
+                <button onClick={() => db.workouts.delete(w.id)} className="text-red-400 bg-red-50 p-1 rounded"><Trash2 size={18}/></button>
+              </div>
+            </div>
+            <div className="text-sm text-gray-600 space-y-1 mt-2">
+              {w.items?.map((item, i) => {
+                const exName = exercises?.find(e => e.id === item.exerciseId)?.name || 'Видалена вправа';
+                return (
+                  <div key={i} className="flex justify-between border-b border-gray-50 pb-1">
+                    <span>{exName}</span><span className="text-xs text-gray-400 font-mono">[{item.weight || '-'} | {item.reps || '-'}]</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
 }
 
 // ==========================================
-// 4. ДОВІДНИК ВПРАВ (без змін)
+// 4. ДОВІДНИК ВПРАВ
 // ==========================================
-function Exercises() { 
-  return <div>Код секції Exercises залишається без змін[cite: 1].</div>; 
+function Exercises() {
+  const exercises = useLiveQuery(() => db.exercises.toArray());
+  const [search, setSearch] = useState('');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formMuscle, setFormMuscle] = useState('Загальна');
+
+  const openForm = (ex?: Exercise) => {
+    if (ex) { setEditId(ex.id); setFormName(ex.name); setFormMuscle(ex.muscle || 'Загальна'); }
+    else { setEditId(null); setFormName(''); setFormMuscle('Загальна'); }
+    setModalOpen(true);
+  };
+
+  const saveExercise = async () => {
+    if (!formName.trim()) return;
+    if (editId) await db.exercises.update(editId, { name: formName, muscle: formMuscle });
+    else await db.exercises.add({ id: crypto.randomUUID(), name: formName, category: 'Користувацькі', muscle: formMuscle });
+    setModalOpen(false);
+  };
+
+  const filtered = exercises?.filter(ex => ex.name.toLowerCase().includes(search.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(search.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
+
+  return (
+    <div className="p-4 pb-24">
+      <div className="flex justify-between items-center mb-4">
+        <h2 className="text-2xl font-bold">Довідник вправ</h2>
+        <button onClick={() => openForm()} className="bg-blue-600 text-white p-2 rounded-lg shadow-sm"><Plus /></button>
+      </div>
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+        <input className="w-full p-2 pl-10 border rounded-lg shadow-sm bg-gray-50" placeholder="Пошук за назвою або групою..." value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+      <div className="space-y-2">
+        {filtered.map(ex => (
+          <div key={ex.id} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-blue-500 flex justify-between items-center">
+            <div>
+              <div className="font-medium text-gray-800">{ex.name}</div>
+              <div className="text-[10px] font-bold text-gray-400 uppercase mt-0.5">{ex.muscle || 'Загальна'}</div>
+            </div>
+            <div className="flex gap-2">
+              <button onClick={() => openForm(ex)} className="text-gray-400 p-1"><Edit2 size={16}/></button>
+              <button onClick={() => db.exercises.delete(ex.id)} className="text-red-400 p-1 bg-red-50 rounded"><Trash2 size={16}/></button>
+            </div>
+          </div>
+        ))}
+      </div>
+      {modalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white w-full max-w-sm rounded-xl p-5 shadow-xl">
+            <h3 className="font-bold text-lg mb-4">{editId ? 'Редагувати вправу' : 'Нова вправа'}</h3>
+            <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Назва вправи" className="w-full p-3 border rounded-lg mb-3 shadow-sm" />
+            <select value={formMuscle} onChange={e => setFormMuscle(e.target.value)} className="w-full p-3 border rounded-lg mb-6 shadow-sm bg-white font-medium">
+              {MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+            <div className="flex gap-3">
+              <button onClick={() => setModalOpen(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Скасувати</button>
+              <button onClick={saveExercise} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-sm">Зберегти</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 // ==========================================
@@ -489,9 +716,9 @@ function NumberControl({ label, value, setValue }: { label: string, value: numbe
     <div className="flex items-center justify-between w-full py-2 border-b border-gray-100 last:border-0">
       <div className="text-sm text-gray-500 font-bold uppercase">{label}</div>
       <div className="flex items-center gap-2">
-        <button onClick={() => setValue(v => Math.max(1, typeof v === 'number' ? v - 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 shadow-sm">-</button>
+        <button onClick={() => setValue(v => Math.max(1, typeof v === 'number' ? v - 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 active:bg-gray-200 shadow-sm">-</button>
         <input type="number" value={value} onChange={e => setValue(Math.max(1, Number(e.target.value)))} className="w-16 text-center font-bold text-xl bg-transparent outline-none p-0 m-0" />
-        <button onClick={() => setValue(v => (typeof v === 'number' ? v + 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 shadow-sm">+</button>
+        <button onClick={() => setValue(v => (typeof v === 'number' ? v + 1 : v))} className="w-12 h-12 flex items-center justify-center bg-gray-100 rounded-xl text-2xl font-bold text-gray-600 active:bg-gray-200 shadow-sm">+</button>
       </div>
     </div>
   );
@@ -508,7 +735,6 @@ function Timers() {
   const wakeLockRef = useRef<any>(null);
   const silentOscRef = useRef<any>(null);
 
-  // Табата (Збереження та 5 секунд PREP)
   const [workTime, setWorkTime] = useState(() => Number(localStorage.getItem('tabata_work')) || 20);
   const [restTime, setRestTime] = useState(() => Number(localStorage.getItem('tabata_rest')) || 10);
   const [rounds, setRounds] = useState(() => Number(localStorage.getItem('tabata_rounds')) || 8);
@@ -519,18 +745,14 @@ function Timers() {
   const tabataEndTime = useRef(0);
   const lastTabataBeep = useRef(0);
 
-  // Вільний таймер
   const [freeTime, setFreeTime] = useState(0);
   const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
   const [workoutNote, setWorkoutNote] = useState('');
   const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
   const lastFreeTick = useRef(Date.now());
 
-  // Дані для редагування в кінці
   const [showTimeEdit, setShowTimeEdit] = useState(false);
   const [editTimes, setEditTimes] = useState({ wm:0, ws:0, mm:0, ms:0, cm:0, cs:0 });
-  
-  // Використовуємо items з плану (якщо вони були відредаговані), інакше - з шаблону
   const initialActiveItems = activeWorkoutData?.plan?.items || activeWorkoutData?.workout?.items || [];
   const initialActiveName = activeWorkoutData?.plan?.name || activeWorkoutData?.workout?.name || '';
   const [finishItems, setFinishItems] = useState<WorkoutItem[]>(initialActiveItems);
@@ -571,22 +793,76 @@ function Timers() {
   const requestWakeLock = async () => { try { if ('wakeLock' in navigator) wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch (err) {} };
   const releaseWakeLock = () => { if (wakeLockRef.current) { wakeLockRef.current.release().catch(()=>{}); wakeLockRef.current = null; } };
 
-  // ... (Фонова логіка Табати і Вільного таймера залишається повністю ідентичною попередній версії).
+  useEffect(() => {
+    const handleVisibility = () => { if (document.visibilityState === 'visible' && isRunning) requestWakeLock(); };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isRunning]);
+
+  useEffect(() => { if (phase === 'IDLE') setTimeLeft(workTime); }, [workTime, phase]);
+
+  useEffect(() => {
+    let t: number;
+    if (isRunning) {
+      t = window.setInterval(() => {
+        const now = Date.now();
+        const remaining = Math.ceil((tabataEndTime.current - now) / 1000);
+        if (remaining <= 3 && remaining > 0 && lastTabataBeep.current !== remaining) { beep(800, 0.1); lastTabataBeep.current = remaining; }
+        if (remaining <= 0) {
+          lastTabataBeep.current = 0;
+          if (phase === 'PREP') { setPhase('WORK'); beep(1200, 0.5); tabataEndTime.current = Date.now() + workTime * 1000; }
+          else if (phase === 'WORK') {
+            if (currentRound >= rounds) { setIsRunning(false); setPhase('IDLE'); beep(400, 1); releaseWakeLock(); stopSilentAudioLoop(); }
+            else { setPhase('REST'); beep(1200, 0.5); tabataEndTime.current = Date.now() + restTime * 1000; }
+          }
+          else if (phase === 'REST') { setPhase('WORK'); setCurrentRound(r => r + 1); beep(1200, 0.5); tabataEndTime.current = Date.now() + workTime * 1000; }
+        } else { setTimeLeft(remaining); }
+      }, 100); 
+    }
+    return () => clearInterval(t);
+  }, [isRunning, phase, currentRound, rounds, workTime, restTime]);
+
+  const toggleTabata = () => {
+    initAudio();
+    if (!isRunning && phase === 'IDLE') { requestWakeLock(); startSilentAudioLoop(); setPhase('PREP'); setCurrentRound(1); tabataEndTime.current = Date.now() + 5 * 1000; }
+    else if (!isRunning) { requestWakeLock(); startSilentAudioLoop(); tabataEndTime.current = Date.now() + timeLeft * 1000; }
+    else { releaseWakeLock(); stopSilentAudioLoop(); }
+    setIsRunning(!isRunning);
+  };
+
+  useEffect(() => {
+    let t: number;
+    if (freePhase !== 'Зупинено') {
+      lastFreeTick.current = Date.now();
+      t = window.setInterval(() => {
+        const now = Date.now(); const deltaSec = (now - lastFreeTick.current) / 1000; lastFreeTick.current = now;
+        setFreeTime(prev => prev + deltaSec);
+        setPhaseTimes(prev => {
+          if (freePhase === 'Розминка') return { ...prev, warmup: prev.warmup + deltaSec };
+          if (freePhase === 'Основна') return { ...prev, main: prev.main + deltaSec };
+          if (freePhase === 'Заминка') return { ...prev, cooldown: prev.cooldown + deltaSec };
+          return prev;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(t);
+  }, [freePhase]);
 
   const initiateStopFreeWorkout = () => {
     initAudio(); setFreePhase('Зупинено');
     if (activeWorkoutData) {
       setEditTimes({ wm: Math.floor(phaseTimes.warmup / 60), ws: Math.floor(phaseTimes.warmup % 60), mm: Math.floor(phaseTimes.main / 60), ms: Math.floor(phaseTimes.main % 60), cm: Math.floor(phaseTimes.cooldown / 60), cs: Math.floor(phaseTimes.cooldown % 60) });
-      setFinishItems([...initialActiveItems]); // Завантажуємо актуальні (можливо відредаговані в плані) вправи
+      setFinishItems([...initialActiveItems]);
       setShowTimeEdit(true);
-    } else {
-      setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 });
-    }
+    } else { setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); }
+  };
+
+  const updateFinishItem = (index: number, field: keyof WorkoutItem, value: string) => {
+    const newItems = [...finishItems]; newItems[index] = { ...newItems[index], [field]: value }; setFinishItems(newItems);
   };
 
   const saveFinalFreeWorkout = async () => {
-    const fw = editTimes.wm * 60 + editTimes.ws; const fm = editTimes.mm * 60 + editTimes.ms; const fc = editTimes.cm * 60 + editTimes.cs;
-    const ft = fw + fm + fc;
+    const fw = editTimes.wm * 60 + editTimes.ws; const fm = editTimes.mm * 60 + editTimes.ms; const fc = editTimes.cm * 60 + editTimes.cs; const ft = fw + fm + fc;
     const breakdownInfo = `[Розминка: ${formatDuration(fw)} | Основна: ${formatDuration(fm)} | Заминка: ${formatDuration(fc)}]`;
     const finalNote = workoutNote ? `${workoutNote}\n\n${breakdownInfo}` : breakdownInfo;
 
@@ -595,18 +871,10 @@ function Timers() {
       return { ...item, exNameSnapshot: ex?.name, exMuscleSnapshot: ex?.muscle };
     });
 
-    await db.history.add({
-      id: crypto.randomUUID(),
-      date: getLocalDateString(new Date()),
-      workoutName: initialActiveName, // Використовуємо назву плану
-      duration: ft,
-      items: itemsSnapshot,
-      note: finalNote
-    });
-
+    await db.history.add({ id: crypto.randomUUID(), date: getLocalDateString(new Date()), workoutName: initialActiveName, duration: ft, items: itemsSnapshot, note: finalNote });
     await db.scheduled.delete(activeWorkoutData!.plan.id);
-    setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); setShowTimeEdit(false);
-    navigate('/');
+
+    setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); setShowTimeEdit(false); navigate('/');
   };
 
   return (
@@ -617,8 +885,110 @@ function Timers() {
           <button onClick={() => navigate('/')} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button>
         </div>
       )}
-      
-      {/* ... Візуальна частина таймерів та модалка фінального збереження залишається ідентичною до попередньої версії ... */}
+
+      <div className="flex bg-gray-200 rounded-lg p-1 mb-6">
+        <button className={`flex-1 py-2 font-bold rounded-md ${mode === 'TABATA' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('TABATA')}>Табата</button>
+        <button className={`flex-1 py-2 font-bold rounded-md ${mode === 'FREE' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('FREE')}>Фактичний час</button>
+      </div>
+
+      {mode === 'TABATA' ? (
+        <div className="flex flex-col items-center">
+          {!isRunning && phase === 'IDLE' && (
+            <div className="w-full bg-white p-4 rounded-xl shadow-sm mb-6 flex flex-col">
+              <NumberControl label="Робота (сек)" value={workTime} setValue={setWorkTime as any} />
+              <NumberControl label="Відпочинок (сек)" value={restTime} setValue={setRestTime as any} />
+              <NumberControl label="Цикли" value={rounds} setValue={setRounds as any} />
+            </div>
+          )}
+          <div className={`w-64 h-64 rounded-full flex flex-col items-center justify-center text-white shadow-lg transition-colors ${phase === 'PREP' ? 'bg-yellow-500' : phase === 'WORK' ? 'bg-red-500' : phase === 'REST' ? 'bg-green-500' : 'bg-gray-800'}`}>
+            <span className="text-2xl font-bold">{phase === 'PREP' ? 'ПІДГОТОВКА' : phase === 'WORK' ? 'РОБОТА' : phase === 'REST' ? 'ВІДПОЧИНОК' : 'ГОТОВИЙ'}</span>
+            <span className="text-7xl font-mono mt-2">{formatDuration(timeLeft)}</span>
+            {phase !== 'IDLE' && phase !== 'PREP' && <span className="text-lg mt-2">Цикл {currentRound}/{rounds}</span>}
+          </div>
+          <button onClick={toggleTabata} className="mt-10 bg-blue-600 text-white px-8 py-4 rounded-xl text-2xl font-bold w-full shadow-lg">{isRunning ? 'ПАУЗА' : phase === 'IDLE' ? 'СТАРТ' : 'ПРОДОВЖИТИ'}</button>
+          {phase !== 'IDLE' && !isRunning && <button onClick={() => { setPhase('IDLE'); setIsRunning(false); releaseWakeLock(); stopSilentAudioLoop(); }} className="mt-4 text-red-600 px-8 py-3 rounded-xl font-bold w-full">Скинути</button>}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center w-full">
+           <div className="text-6xl font-mono mt-4 mb-2">{formatDuration(freeTime)}</div>
+           <div className="text-lg font-bold mb-4 text-blue-600 uppercase">{freePhase}</div>
+           
+           <div className="w-full flex justify-between bg-white p-3 rounded-xl shadow-sm mb-6 border border-gray-100">
+              <div className="text-center w-1/3">
+                <div className="text-[10px] text-gray-400 font-bold uppercase">Розминка</div>
+                <div className={`font-mono text-lg ${freePhase === 'Розминка' ? 'text-yellow-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.warmup)}</div>
+              </div>
+              <div className="text-center w-1/3 border-l border-r border-gray-100">
+                <div className="text-[10px] text-gray-400 font-bold uppercase">Основна</div>
+                <div className={`font-mono text-lg ${freePhase === 'Основна' ? 'text-red-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.main)}</div>
+              </div>
+              <div className="text-center w-1/3">
+                <div className="text-[10px] text-gray-400 font-bold uppercase">Заминка</div>
+                <div className={`font-mono text-lg ${freePhase === 'Заминка' ? 'text-green-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.cooldown)}</div>
+              </div>
+           </div>
+
+           <div className="grid grid-cols-1 gap-3 w-full">
+              <button onClick={() => { initAudio(); setFreePhase('Розминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Розминка' ? 'bg-yellow-400 text-black ring-2 ring-yellow-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Розминку</button>
+              <button onClick={() => { initAudio(); setFreePhase('Основна'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Основна' ? 'bg-red-500 text-white ring-2 ring-red-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Основну</button>
+              <button onClick={() => { initAudio(); setFreePhase('Заминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Заминка' ? 'bg-green-500 text-white ring-2 ring-green-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Заминку</button>
+              
+              <button onClick={initiateStopFreeWorkout} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg">
+                {activeWorkoutData ? 'Завершити тренування' : 'Скинути таймер'}
+              </button>
+           </div>
+        </div>
+      )}
+
+      {showTimeEdit && activeWorkoutData && (
+        <div className="fixed inset-0 bg-black/60 flex items-end justify-center z-[110] p-2 pb-16">
+          <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="font-bold text-xl mb-4 text-center">Підсумки тренування</h3>
+            
+            <div className="space-y-2 mb-6">
+              <div className="flex justify-between p-2 bg-gray-50 rounded border">
+                 <span className="font-bold">Розминка</span>
+                 <div className="flex gap-1"><input type="number" value={editTimes.wm} onChange={e => setEditTimes({...editTimes, wm: Number(e.target.value)})} className="w-10 text-center border rounded"/>хв <input type="number" value={editTimes.ws} onChange={e => setEditTimes({...editTimes, ws: Number(e.target.value)})} className="w-10 text-center border rounded"/>с</div>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-50 rounded border">
+                 <span className="font-bold">Основна</span>
+                 <div className="flex gap-1"><input type="number" value={editTimes.mm} onChange={e => setEditTimes({...editTimes, mm: Number(e.target.value)})} className="w-10 text-center border rounded"/>хв <input type="number" value={editTimes.ms} onChange={e => setEditTimes({...editTimes, ms: Number(e.target.value)})} className="w-10 text-center border rounded"/>с</div>
+              </div>
+              <div className="flex justify-between p-2 bg-gray-50 rounded border">
+                 <span className="font-bold">Заминка</span>
+                 <div className="flex gap-1"><input type="number" value={editTimes.cm} onChange={e => setEditTimes({...editTimes, cm: Number(e.target.value)})} className="w-10 text-center border rounded"/>хв <input type="number" value={editTimes.cs} onChange={e => setEditTimes({...editTimes, cs: Number(e.target.value)})} className="w-10 text-center border rounded"/>с</div>
+              </div>
+            </div>
+
+            <h4 className="font-bold text-sm text-gray-500 uppercase mb-2">Фактичні вправи</h4>
+            <div className="space-y-3 mb-6">
+              {finishItems.map((item, idx) => {
+                const exName = exercises?.find(e => e.id === item.exerciseId)?.name || 'Вправа';
+                return (
+                  <div key={idx} className="p-3 bg-white border rounded shadow-sm">
+                    <div className="flex justify-between mb-2">
+                      <span className="font-bold text-sm">{exName}</span>
+                      <button onClick={() => setFinishItems(finishItems.filter((_, i) => i !== idx))} className="text-red-500"><Trash2 size={16}/></button>
+                    </div>
+                    <div className="flex gap-2">
+                       <input value={item.weight} onChange={e => updateFinishItem(idx, 'weight', e.target.value)} placeholder="Вага" className="w-1/3 p-1 border rounded text-xs" />
+                       <input value={item.reps} onChange={e => updateFinishItem(idx, 'reps', e.target.value)} placeholder="Повтори" className="w-1/3 p-1 border rounded text-xs" />
+                       <input value={item.band} onChange={e => updateFinishItem(idx, 'band', e.target.value)} placeholder="Еспандер" className="w-1/3 p-1 border rounded text-xs" />
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <textarea value={workoutNote} onChange={e => setWorkoutNote(e.target.value)} placeholder="Примітка до тренування..." className="w-full p-3 border rounded-lg bg-gray-50 text-sm shadow-sm min-h-[80px] mb-4" />
+            
+            <div className="flex gap-3 sticky bottom-0 bg-white pt-2">
+              <button onClick={() => setShowTimeEdit(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Скасувати</button>
+              <button onClick={saveFinalFreeWorkout} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold shadow-sm">Зберегти</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -709,7 +1079,7 @@ export default function App() {
             const foundEx = insertedExercises.find(e => e.name === exName);
             return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' };
           }).filter(item => item.exerciseId !== '');
-          return { id: crypto.randomUUID(), name: w.name, items, note: '' };
+          return { id: crypto.randomUUID(), name: w.name, muscle: w.muscle, items, note: '' };
         });
         await db.workouts.bulkAdd(workoutsToInsert);
       }
