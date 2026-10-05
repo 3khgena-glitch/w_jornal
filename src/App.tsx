@@ -9,8 +9,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 // ==========================================
 export interface Exercise { id: string; name: string; category: string; muscle?: string; }
 export interface WorkoutItem { exerciseId: string; weight: string; band: string; reps: string; note: string; exNameSnapshot?: string; exMuscleSnapshot?: string; }
-export interface Workout { id: string; name: string; items: WorkoutItem[]; note: string; muscle?: string; }
-// Додано name та items до Scheduled для корекції плану
+export interface Workout { id: string; name: string; items: WorkoutItem[]; note: string; muscle?: string; muscles?: string[]; }
 export interface Scheduled { id: string; date: string; workoutId: string; isCompleted: boolean; name?: string; items?: WorkoutItem[]; }
 export interface History { id: string; date: string; workoutName: string; duration: number; items: WorkoutItem[]; note?: string; }
 
@@ -20,8 +19,13 @@ export class WorkoutJournalDB extends Dexie {
   scheduled!: Table<Scheduled, string>;
   history!: Table<History, string>;
   constructor() {
-    super('WJornalDB_v7');
-    this.version(1).stores({ exercises: 'id, name, category', workouts: 'id, name', scheduled: 'id, date', history: 'id, date' });
+    super('WJornalDB_v8');
+    this.version(2).stores({
+      exercises: 'id, name, category',
+      workouts: 'id, name',
+      scheduled: 'id, date',
+      history: 'id, date'
+    });
   }
 }
 export const db = new WorkoutJournalDB();
@@ -43,7 +47,7 @@ const initialExercises = [
 ];
 
 const initialWorkouts = [
-  { name: 'МИНОТАВР', muscle: 'Загальна', exercises: ['ГОБЛЕТ-присидання', 'ПРОТЯЖКА до подборіддя', 'МАХИ 2 руками', 'ТЯГА В НАКЛОНІ до поясу', 'СТАНОВА ТЯГА з гірею'] }
+  { name: 'МИНОТАВР', muscles: ['Загальна'], exercises: ['ГОБЛЕТ-присидання', 'ПРОТЯЖКА до подборіддя', 'МАХИ 2 руками', 'ТЯГА В НАКЛОНІ до поясу', 'СТАНОВА ТЯГА з гірею'] }
 ];
 
 const formatDuration = (secs: number) => {
@@ -79,10 +83,9 @@ function CalendarView() {
   const [activePlanAction, setActivePlanAction] = useState<Scheduled | null>(null);
   const [activeHistoryAction, setActiveHistoryAction] = useState<History | null>(null);
 
-  // Стан для корекції плану
   const [planSetup, setPlanSetup] = useState<{ date: string; baseWorkoutId: string; editName: string; editItems: WorkoutItem[]; showAddEx: boolean; exSearch: string; } | null>(null);
   const [planNote, setPlanNote] = useState('');
-  
+
   useEffect(() => { if (!activePlanAction) setPlanNote(''); }, [activePlanAction]);
 
   const getMonthDays = (year: number, month: number) => {
@@ -94,36 +97,26 @@ function CalendarView() {
 
   const todayStr = getLocalDateString(new Date());
   const visibleDays = Array.from({ length: 5 }).map((_, i) => {
-    const d = new Date(); d.setDate(d.getDate() + dayOffset + i - 2); return d;
+    const d = new Date(); d.setDate(d.getDate() + dayOffset + i - 2);
+    return d;
   });
 
   const initiatePlanSetup = (date: string, workout: Workout) => {
-    setPlanSetup({
-      date,
-      baseWorkoutId: workout.id,
-      editName: workout.name,
-      editItems: workout.items ? [...workout.items] : [],
-      showAddEx: false,
-      exSearch: ''
-    });
+    setPlanSetup({ date, baseWorkoutId: workout.id, editName: workout.name, editItems: workout.items ? [...workout.items] : [], showAddEx: false, exSearch: '' });
   };
 
   const savePlanSetup = async () => {
     if (planSetup) {
-      await db.scheduled.add({
-        id: crypto.randomUUID(),
-        date: planSetup.date,
-        workoutId: planSetup.baseWorkoutId,
-        name: planSetup.editName,
-        items: planSetup.editItems,
-        isCompleted: false
-      });
+      await db.scheduled.add({ id: crypto.randomUUID(), date: planSetup.date, workoutId: planSetup.baseWorkoutId, name: planSetup.editName, items: planSetup.editItems, isCompleted: false });
       setPlanSetup(null);
     }
   };
 
   const handlePlan = (workout: Workout) => {
-    if (planModalDate) { initiatePlanSetup(planModalDate, workout); setPlanModalDate(null); }
+    if (planModalDate) {
+      initiatePlanSetup(planModalDate, workout);
+      setPlanModalDate(null);
+    }
   };
 
   const handleMarkDone = async (plan: Scheduled) => {
@@ -135,8 +128,7 @@ function CalendarView() {
   };
 
   const handleStart = (plan: Scheduled, workout: Workout) => {
-    setActivePlanAction(null);
-    navigate('/timer', { state: { plan, workout } });
+    setActivePlanAction(null); navigate('/timer', { state: { plan, workout } });
   };
 
   const handleCellClickMatrix = (dStr: string, workout: Workout, isPlanned: boolean, planObj?: Scheduled) => {
@@ -145,16 +137,26 @@ function CalendarView() {
   };
 
   const sortedWorkouts = workouts?.slice().sort((a, b) => {
-    const m1 = a.muscle || 'Загальна'; const m2 = b.muscle || 'Загальна';
+    const m1 = a.muscles?.[0] || a.muscle || 'Загальна';
+    const m2 = b.muscles?.[0] || b.muscle || 'Загальна';
     if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA');
     return a.name.localeCompare(b.name, 'uk-UA');
+  });
+
+  const filteredMatrixWorkouts = sortedWorkouts?.filter(w => {
+    return visibleDays.some(day => {
+      const dStr = getLocalDateString(day);
+      const hasHist = historyData?.some(h => h.date === dStr && h.workoutName === w.name);
+      const hasPlan = scheduled?.some(s => s.date === dStr && s.workoutId === w.id);
+      return hasHist || hasPlan;
+    });
   });
 
   return (
     <div className="p-2 pb-24">
       <div className="flex justify-between items-center mb-4 px-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v2.0</span>
+          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v2.1</span>
           <div className="flex bg-gray-200 rounded-lg p-1">
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
@@ -186,17 +188,18 @@ function CalendarView() {
               let bgClass = 'bg-white border-transparent'; let textClass = 'text-gray-700'; let content = null;
 
               if (hists.length > 0) { 
-                const firstLetter = hists[0].workoutName.charAt(0).toUpperCase();
+                const w = workouts?.find(w => w.name === hists[0].workoutName);
+                const wMuscles = w?.muscles?.length ? w.muscles : (w?.muscle ? [w.muscle] : ['Загальна']);
                 bgClass = 'bg-green-100 border-green-300 shadow-sm'; textClass = 'text-green-800 font-bold'; 
-                content = (<div className="flex flex-col items-center mt-1"><span className="text-xl font-black leading-none opacity-90">{firstLetter}</span><span className="text-[9px] mt-1 font-mono opacity-80">{formatDuration(hists[0].duration)}</span></div>);
+                content = (<div className="flex flex-col items-center mt-1 px-0.5 w-full"><span className="text-[9px] leading-none text-center opacity-90 break-words">{wMuscles.join(', ')}</span><span className="text-[9px] mt-1 font-mono opacity-80">{formatDuration(hists[0].duration)}</span></div>);
               } else if (plans.length > 0) { 
-                const pName = plans[0].name || workouts?.find(w => w.id === plans[0].workoutId)?.name || '?';
-                const firstLetter = pName.charAt(0).toUpperCase();
+                const w = workouts?.find(w => w.id === plans[0].workoutId);
+                const wMuscles = w?.muscles?.length ? w.muscles : (w?.muscle ? [w.muscle] : ['Загальна']);
                 bgClass = 'bg-white border-blue-300 shadow-md ring-1 ring-blue-100'; textClass = 'text-gray-900 font-bold'; 
-                content = (<div className="flex flex-col items-center mt-1"><span className="text-xl text-blue-600 font-black leading-none">{firstLetter}</span><span className="text-[9px] mt-1 font-mono text-gray-400">--:--</span></div>);
+                content = (<div className="flex flex-col items-center mt-1 px-0.5 w-full"><span className="text-[9px] text-blue-600 leading-none text-center break-words">{wMuscles.join(', ')}</span><span className="text-[9px] mt-1 font-mono text-gray-400">--:--</span></div>);
               }
               return (
-                <div key={dStr} onClick={() => setDayDetailsDate(dStr)} className={`min-h-[60px] flex flex-col items-center pt-1 pb-1 rounded-md text-sm cursor-pointer border ${bgClass} ${textClass} ${dStr === todayStr ? 'ring-2 ring-blue-500' : ''}`}>
+                <div key={dStr} onClick={() => setDayDetailsDate(dStr)} className={`min-h-[70px] flex flex-col items-center pt-1 pb-1 rounded-md text-sm cursor-pointer border ${bgClass} ${textClass} ${dStr === todayStr ? 'ring-2 ring-blue-500' : ''}`}>
                   <span className="text-[10px] opacity-70 leading-none mb-1">{day.getDate()}</span>{content}
                 </div>
               );
@@ -223,42 +226,51 @@ function CalendarView() {
                     <th key={dStr} className={`p-2 border-b text-center min-w-[65px] ${isToday ? 'bg-blue-50' : ''}`}>
                       <div className={`text-[10px] uppercase ${isToday ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>{day.toLocaleDateString('uk-UA', { weekday: 'short' })}</div>
                       <div className={`text-sm font-bold ${isToday ? 'text-blue-700' : 'text-gray-800'}`}>{day.getDate()}.{(day.getMonth() + 1).toString().padStart(2, '0')}</div>
+                      <button onClick={() => setPlanModalDate(dStr)} className="mt-1.5 flex items-center justify-center w-6 h-6 mx-auto bg-gray-100 text-blue-600 rounded-full hover:bg-blue-200 transition-colors"><Plus size={14} /></button>
                     </th>
                   );
                 })}
               </tr>
             </thead>
             <tbody>
-              {sortedWorkouts?.map(w => (
-                <tr key={w.id} className="hover:bg-gray-50">
-                  <td className="sticky left-0 bg-white z-10 p-2 border-b border-r max-w-[120px]" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
-                    <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">{w.muscle || 'Загальна'}</div>
-                    <div className="text-[11px] font-bold text-gray-800 leading-tight">{w.name}</div>
-                  </td>
-                  {visibleDays.map(day => {
-                    const dStr = getLocalDateString(day); const isToday = dStr === todayStr;
-                    const hist = historyData?.find(h => h.date === dStr && h.workoutName === w.name);
-                    const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
-                    const firstLetter = (plan?.name || w.name).charAt(0).toUpperCase();
-
-                    return (
-                      <td key={dStr} className={`p-1 border-b text-center align-middle border-l border-gray-100 ${isToday && !hist ? 'bg-blue-50/50' : ''}`}>
-                        {hist ? (
-                          <div onClick={() => setActiveHistoryAction(hist)} className="bg-green-100 text-green-800 rounded shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-green-200 w-full h-14 border border-green-200">
-                            <span className="text-xl font-black leading-none">{firstLetter}</span><span className="text-[9px] mt-1 font-mono">{formatDuration(hist.duration)}</span>
-                          </div>
-                        ) : plan ? (
-                          <button onClick={() => handleCellClickMatrix(dStr, w, true, plan)} className="bg-blue-500 text-white rounded w-full h-14 shadow-sm active:bg-blue-600 flex flex-col items-center justify-center">
-                            <span className="text-xl font-black leading-none">{firstLetter}</span><span className="text-[9px] mt-1 font-mono text-blue-200">--:--</span>
-                          </button>
-                        ) : (
-                          <div onClick={() => handleCellClickMatrix(dStr, w, false)} className="h-14 w-full rounded flex items-center justify-center hover:bg-gray-100 cursor-pointer text-gray-300 hover:text-gray-400"><Plus size={18} /></div>
-                        )}
-                      </td>
-                    );
-                  })}
+              {filteredMatrixWorkouts?.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="text-center p-6 text-gray-400 text-sm">В цьому періоді немає тренувань. Натисніть "+" на даті, щоб додати.</td>
                 </tr>
-              ))}
+              )}
+              {filteredMatrixWorkouts?.map(w => {
+                const wMusclesStr = w.muscles?.length ? w.muscles.join(', ') : (w.muscle || 'Загальна');
+                return (
+                  <tr key={w.id} className="hover:bg-gray-50">
+                    <td className="sticky left-0 bg-white z-10 p-2 border-b border-r max-w-[120px]" style={{ whiteSpace: 'normal', wordBreak: 'break-word' }}>
+                      <div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">{wMusclesStr}</div>
+                      <div className="text-[11px] font-bold text-gray-800 leading-tight">{w.name}</div>
+                    </td>
+                    {visibleDays.map(day => {
+                      const dStr = getLocalDateString(day); const isToday = dStr === todayStr;
+                      const hist = historyData?.find(h => h.date === dStr && h.workoutName === w.name);
+                      const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
+                      const firstLetter = (plan?.name || w.name).charAt(0).toUpperCase();
+
+                      return (
+                        <td key={dStr} className={`p-1 border-b text-center align-middle border-l border-gray-100 ${isToday && !hist ? 'bg-blue-50/50' : ''}`}>
+                          {hist ? (
+                            <div onClick={() => setActiveHistoryAction(hist)} className="bg-green-100 text-green-800 rounded shadow-sm flex flex-col items-center justify-center cursor-pointer hover:bg-green-200 w-full h-14 border border-green-200">
+                              <span className="text-xl font-black leading-none">{firstLetter}</span><span className="text-[9px] mt-1 font-mono">{formatDuration(hist.duration)}</span>
+                            </div>
+                          ) : plan ? (
+                            <button onClick={() => handleCellClickMatrix(dStr, w, true, plan)} className="bg-blue-500 text-white rounded w-full h-14 shadow-sm active:bg-blue-600 flex flex-col items-center justify-center">
+                              <span className="text-xl font-black leading-none">{firstLetter}</span><span className="text-[9px] mt-1 font-mono text-blue-200">--:--</span>
+                            </button>
+                          ) : (
+                            <div className="h-14 w-full rounded flex items-center justify-center text-transparent">.</div>
+                          )}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -406,36 +418,73 @@ function CalendarView() {
 function Workouts() {
   const workouts = useLiveQuery(() => db.workouts.toArray());
   const exercises = useLiveQuery(() => db.exercises.toArray());
+  
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [name, setName] = useState(''); const [muscle, setMuscle] = useState('Загальна');
+  const [name, setName] = useState('');
+  const [muscles, setMuscles] = useState<string[]>([]);
   const [items, setItems] = useState<WorkoutItem[]>([]);
-  const [showAddEx, setShowAddEx] = useState(false); const [exSearch, setExSearch] = useState('');
+  const [showAddEx, setShowAddEx] = useState(false);
+  const [exSearch, setExSearch] = useState('');
 
   const startEdit = (w: Workout | null) => {
-    if (w) { setEditingId(w.id); setName(w.name); setMuscle(w.muscle || 'Загальна'); setItems(w.items || []); }
-    else { setEditingId('new'); setName(''); setMuscle('Загальна'); setItems([]); }
+    if (w) {
+      setEditingId(w.id);
+      setName(w.name);
+      setMuscles(w.muscles?.length ? w.muscles : (w.muscle ? [w.muscle] : ['Загальна']));
+      setItems(w.items || []);
+    } else {
+      setEditingId('new');
+      setName('');
+      setMuscles(['Загальна']);
+      setItems([]);
+    }
   };
 
   const saveWorkout = async () => {
     if (!name.trim()) return;
-    const data = { name, muscle, items, note: '' };
+    const data = { name, muscles, items, note: '' };
     if (editingId === 'new') await db.workouts.add({ id: crypto.randomUUID(), ...data });
     else if (editingId) await db.workouts.update(editingId, data);
     setEditingId(null);
   };
 
-  const updateItem = (index: number, field: keyof WorkoutItem, value: string) => { const newItems = [...items]; newItems[index] = { ...newItems[index], [field]: value }; setItems(newItems); };
-  const moveItemUp = (index: number) => { if (index === 0) return; const newItems = [...items]; [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]]; setItems(newItems); };
-  const moveItemDown = (index: number) => { if (index === items.length - 1) return; const newItems = [...items]; [newItems[index + 1], newItems[index]] = [newItems[index], newItems[index + 1]]; setItems(newItems); };
+  const updateItem = (index: number, field: keyof WorkoutItem, value: string) => {
+    const newItems = [...items]; newItems[index] = { ...newItems[index], [field]: value };
+    setItems(newItems);
+  };
+  const moveItemUp = (index: number) => {
+    if (index === 0) return;
+    const newItems = [...items]; [newItems[index - 1], newItems[index]] = [newItems[index], newItems[index - 1]];
+    setItems(newItems);
+  };
+  const moveItemDown = (index: number) => {
+    if (index === items.length - 1) return;
+    const newItems = [...items]; [newItems[index + 1], newItems[index]] = [newItems[index], newItems[index + 1]];
+    setItems(newItems);
+  };
 
   if (editingId) {
     const filteredExs = exercises?.filter(ex => ex.name.toLowerCase().includes(exSearch.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(exSearch.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
     return (
       <div className="p-4 pb-24">
         <div className="flex justify-between items-center mb-4"><button onClick={() => setEditingId(null)} className="text-gray-500 font-bold">Скасувати</button><button onClick={saveWorkout} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex gap-2"><Save size={20}/> Зберегти</button></div>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-3 font-bold text-lg shadow-sm" />
-        <select value={muscle} onChange={e => setMuscle(e.target.value)} className="w-full p-3 border rounded-lg mb-6 shadow-sm bg-white font-medium text-gray-700">{MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}</select>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-4 font-bold text-lg shadow-sm" />
         
+        <div className="mb-6">
+           <label className="text-xs font-bold text-gray-500 mb-2 block uppercase">Групи м'язів</label>
+           <div className="flex flex-wrap gap-2">
+             {MUSCLE_GROUPS.map(m => (
+                <label key={m} className={`flex items-center gap-2 border px-3 py-2 rounded-lg text-sm shadow-sm transition-colors ${muscles.includes(m) ? 'bg-blue-50 border-blue-300 text-blue-700 font-bold' : 'bg-white text-gray-700'}`}>
+                   <input type="checkbox" className="w-4 h-4" checked={muscles.includes(m)} onChange={e => {
+                      if(e.target.checked) setMuscles([...muscles, m]);
+                      else setMuscles(muscles.filter(x => x !== m));
+                   }} />
+                   {m}
+                </label>
+             ))}
+           </div>
+        </div>
+
         <div className="space-y-4 mb-6">
           {items.map((item, idx) => {
             const ex = exercises?.find(e => e.id === item.exerciseId);
@@ -473,20 +522,31 @@ function Workouts() {
     );
   }
 
-  const sortedWorkouts = workouts?.slice().sort((a, b) => { const m1 = a.muscle || 'Загальна'; const m2 = b.muscle || 'Загальна'; if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA'); return a.name.localeCompare(b.name, 'uk-UA'); });
+  const sortedWorkouts = workouts?.slice().sort((a, b) => {
+    const m1 = a.muscles?.[0] || a.muscle || 'Загальна';
+    const m2 = b.muscles?.[0] || b.muscle || 'Загальна';
+    if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA');
+    return a.name.localeCompare(b.name, 'uk-UA');
+  });
 
   return (
     <div className="p-4 pb-24">
       <div className="flex justify-between items-center mb-6"><h2 className="text-2xl font-bold">Шаблони тренувань</h2><button onClick={() => startEdit(null)} className="bg-blue-600 text-white p-2 rounded-lg shadow-sm"><Plus /></button></div>
       <div className="space-y-4">
-        {sortedWorkouts?.map(w => (
-          <div key={w.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
-            <div className="flex justify-between items-start mb-3"><div><div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">{w.muscle || 'Загальна'}</div><h3 className="font-bold text-lg text-blue-800">{w.name}</h3></div><div className="flex gap-4 mt-1"><button onClick={() => startEdit(w)} className="text-gray-400"><Edit2 size={18}/></button><button onClick={() => db.workouts.delete(w.id)} className="text-red-400 bg-red-50 p-1 rounded"><Trash2 size={18}/></button></div></div>
-            <div className="text-sm text-gray-600 space-y-1 mt-2">
-              {w.items?.map((item, i) => { const exName = exercises?.find(e => e.id === item.exerciseId)?.name || 'Видалена вправа'; return (<div key={i} className="flex justify-between border-b border-gray-50 pb-1"><span>{exName}</span><span className="text-xs text-gray-400 font-mono">[{item.weight || '-'} | {item.reps || '-'}]</span></div>); })}
+        {sortedWorkouts?.map(w => {
+          const wMusclesStr = w.muscles?.length ? w.muscles.join(', ') : (w.muscle || 'Загальна');
+          return (
+            <div key={w.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100">
+              <div className="flex justify-between items-start mb-3"><div><div className="text-[10px] font-bold text-gray-400 uppercase mb-0.5">{wMusclesStr}</div><h3 className="font-bold text-lg text-blue-800">{w.name}</h3></div><div className="flex gap-4 mt-1"><button onClick={() => startEdit(w)} className="text-gray-400"><Edit2 size={18}/></button><button onClick={() => db.workouts.delete(w.id)} className="text-red-400 bg-red-50 p-1 rounded"><Trash2 size={18}/></button></div></div>
+              <div className="text-sm text-gray-600 space-y-1 mt-2">
+                {w.items?.map((item, i) => {
+                  const exName = exercises?.find(e => e.id === item.exerciseId)?.name || 'Видалена вправа';
+                  return (<div key={i} className="flex justify-between border-b border-gray-50 pb-1"><span>{exName}</span><span className="text-xs text-gray-400 font-mono">[{item.weight || '-'} | {item.reps || '-'}]</span></div>);
+                })}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -498,11 +558,22 @@ function Workouts() {
 function Exercises() {
   const exercises = useLiveQuery(() => db.exercises.toArray());
   const [search, setSearch] = useState('');
-  const [modalOpen, setModalOpen] = useState(false); const [editId, setEditId] = useState<string | null>(null);
-  const [formName, setFormName] = useState(''); const [formMuscle, setFormMuscle] = useState('Загальна');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [formName, setFormName] = useState('');
+  const [formMuscle, setFormMuscle] = useState('Загальна');
 
-  const openForm = (ex?: Exercise) => { if (ex) { setEditId(ex.id); setFormName(ex.name); setFormMuscle(ex.muscle || 'Загальна'); } else { setEditId(null); setFormName(''); setFormMuscle('Загальна'); } setModalOpen(true); };
-  const saveExercise = async () => { if (!formName.trim()) return; if (editId) await db.exercises.update(editId, { name: formName, muscle: formMuscle }); else await db.exercises.add({ id: crypto.randomUUID(), name: formName, category: 'Користувацькі', muscle: formMuscle }); setModalOpen(false); };
+  const openForm = (ex?: Exercise) => {
+    if (ex) { setEditId(ex.id); setFormName(ex.name); setFormMuscle(ex.muscle || 'Загальна'); }
+    else { setEditId(null); setFormName(''); setFormMuscle('Загальна'); }
+    setModalOpen(true);
+  };
+  const saveExercise = async () => {
+    if (!formName.trim()) return;
+    if (editId) await db.exercises.update(editId, { name: formName, muscle: formMuscle });
+    else await db.exercises.add({ id: crypto.randomUUID(), name: formName, category: 'Користувацькі', muscle: formMuscle });
+    setModalOpen(false);
+  };
   const filtered = exercises?.filter(ex => ex.name.toLowerCase().includes(search.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(search.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
 
   return (
@@ -541,11 +612,15 @@ function NumberControl({ label, value, setValue }: { label: string, value: numbe
 }
 
 function Timers() {
-  const location = useLocation(); const navigate = useNavigate();
+  const location = useLocation();
+  const navigate = useNavigate();
   const activeWorkoutData = location.state as { plan: Scheduled, workout: Workout } | null;
   const exercises = useLiveQuery(() => db.exercises.toArray());
   const [mode, setMode] = useState<'TABATA' | 'FREE'>(activeWorkoutData ? 'FREE' : 'TABATA');
-  const audioCtx = useRef<AudioContext | null>(null); const wakeLockRef = useRef<any>(null); const silentOscRef = useRef<any>(null);
+  
+  const audioCtx = useRef<AudioContext | null>(null);
+  const wakeLockRef = useRef<any>(null);
+  const silentOscRef = useRef<any>(null);
 
   const [workTime, setWorkTime] = useState(() => Number(localStorage.getItem('tabata_work')) || 20);
   const [restTime, setRestTime] = useState(() => Number(localStorage.getItem('tabata_rest')) || 10);
@@ -554,11 +629,21 @@ function Timers() {
   const [phase, setPhase] = useState<'PREP' | 'WORK' | 'REST' | 'IDLE'>('IDLE');
   const [timeLeft, setTimeLeft] = useState(workTime);
   const [currentRound, setCurrentRound] = useState(1);
-  const tabataEndTime = useRef(0); const lastTabataBeep = useRef(0);
+  const tabataEndTime = useRef(0);
+  const lastTabataBeep = useRef(0);
 
-  const [freeTime, setFreeTime] = useState(0); const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
-  const [workoutNote, setWorkoutNote] = useState(''); const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
+  const [freeTime, setFreeTime] = useState(0);
+  const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
+  const [workoutNote, setWorkoutNote] = useState('');
+  const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
   const lastFreeTick = useRef(Date.now());
+
+  // Стан для таймера відпочинку у вільному режимі
+  const [freeRestTime, setFreeRestTime] = useState(() => Number(localStorage.getItem('free_rest_time')) || 60);
+  const [freeRestTimeLeft, setFreeRestTimeLeft] = useState(freeRestTime);
+  const [isFreeResting, setIsFreeResting] = useState(false);
+  const freeRestEndTime = useRef(0);
+  const lastFreeRestBeep = useRef(0);
 
   const [showTimeEdit, setShowTimeEdit] = useState(false);
   const [editTimes, setEditTimes] = useState({ wm:0, ws:0, mm:0, ms:0, cm:0, cs:0 });
@@ -566,77 +651,207 @@ function Timers() {
   const initialActiveName = activeWorkoutData?.plan?.name || activeWorkoutData?.workout?.name || '';
   const [finishItems, setFinishItems] = useState<WorkoutItem[]>(initialActiveItems);
 
-  useEffect(() => { localStorage.setItem('tabata_work', String(workTime)); localStorage.setItem('tabata_rest', String(restTime)); localStorage.setItem('tabata_rounds', String(rounds)); }, [workTime, restTime, rounds]);
+  useEffect(() => {
+    localStorage.setItem('tabata_work', String(workTime));
+    localStorage.setItem('tabata_rest', String(restTime));
+    localStorage.setItem('tabata_rounds', String(rounds));
+    localStorage.setItem('free_rest_time', String(freeRestTime));
+  }, [workTime, restTime, rounds, freeRestTime]);
 
-  const beep = (freq: number, duration: number) => { if (!audioCtx.current) return; const osc = audioCtx.current.createOscillator(); osc.connect(audioCtx.current.destination); osc.frequency.value = freq; osc.start(); osc.stop(audioCtx.current.currentTime + duration); };
-  const startSilentAudioLoop = () => { if (!audioCtx.current) return; if (silentOscRef.current) return; const osc = audioCtx.current.createOscillator(); const gain = audioCtx.current.createGain(); gain.gain.value = 0.001; osc.connect(gain); gain.connect(audioCtx.current.destination); osc.start(); silentOscRef.current = osc; };
-  const stopSilentAudioLoop = () => { if (silentOscRef.current) { silentOscRef.current.stop(); silentOscRef.current.disconnect(); silentOscRef.current = null; } };
-  const initAudio = () => { if (!audioCtx.current) audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)(); audioCtx.current.resume(); };
-  const requestWakeLock = async () => { try { if ('wakeLock' in navigator) wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } catch (err) {} };
-  const releaseWakeLock = () => { if (wakeLockRef.current) { wakeLockRef.current.release().catch(()=>{}); wakeLockRef.current = null; } };
+  const beep = (freq: number, duration: number) => {
+    if (!audioCtx.current) return;
+    const osc = audioCtx.current.createOscillator();
+    osc.connect(audioCtx.current.destination);
+    osc.frequency.value = freq;
+    osc.start();
+    osc.stop(audioCtx.current.currentTime + duration);
+  };
 
-  useEffect(() => { const handleVisibility = () => { if (document.visibilityState === 'visible' && isRunning) requestWakeLock(); }; document.addEventListener('visibilitychange', handleVisibility); return () => document.removeEventListener('visibilitychange', handleVisibility); }, [isRunning]);
+  const startSilentAudioLoop = () => {
+    if (!audioCtx.current) return;
+    if (silentOscRef.current) return;
+    const osc = audioCtx.current.createOscillator();
+    const gain = audioCtx.current.createGain();
+    gain.gain.value = 0.001;
+    osc.connect(gain);
+    gain.connect(audioCtx.current.destination);
+    osc.start();
+    silentOscRef.current = osc;
+  };
+
+  const stopSilentAudioLoop = () => {
+    if (silentOscRef.current) {
+      silentOscRef.current.stop();
+      silentOscRef.current.disconnect();
+      silentOscRef.current = null;
+    }
+  };
+
+  const initAudio = () => {
+    if (!audioCtx.current) audioCtx.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    audioCtx.current.resume();
+  };
+
+  const requestWakeLock = async () => {
+    try {
+      if ('wakeLock' in navigator) wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
+    } catch (err) {}
+  };
+
+  const releaseWakeLock = () => {
+    if (wakeLockRef.current) {
+      wakeLockRef.current.release().catch(()=>{});
+      wakeLockRef.current = null;
+    }
+  };
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible' && (isRunning || freePhase !== 'Зупинено')) {
+        requestWakeLock();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, [isRunning, freePhase]);
+
   useEffect(() => { if (phase === 'IDLE') setTimeLeft(workTime); }, [workTime, phase]);
 
+  // Таймер Табати
   useEffect(() => {
     let t: number;
     if (isRunning) {
       t = window.setInterval(() => {
-        const now = Date.now(); const remaining = Math.ceil((tabataEndTime.current - now) / 1000);
+        const now = Date.now();
+        const remaining = Math.ceil((tabataEndTime.current - now) / 1000);
         if (remaining <= 3 && remaining > 0 && lastTabataBeep.current !== remaining) { beep(800, 0.1); lastTabataBeep.current = remaining; }
         if (remaining <= 0) {
           lastTabataBeep.current = 0;
           if (phase === 'PREP') { setPhase('WORK'); beep(1200, 0.5); tabataEndTime.current = Date.now() + workTime * 1000; }
-          else if (phase === 'WORK') { if (currentRound >= rounds) { setIsRunning(false); setPhase('IDLE'); beep(400, 1); releaseWakeLock(); stopSilentAudioLoop(); } else { setPhase('REST'); beep(1200, 0.5); tabataEndTime.current = Date.now() + restTime * 1000; } }
-          else if (phase === 'REST') { setPhase('WORK'); setCurrentRound(r => r + 1); beep(1200, 0.5); tabataEndTime.current = Date.now() + workTime * 1000; }
+          else if (phase === 'WORK') {
+            if (currentRound >= rounds) { setIsRunning(false); setPhase('IDLE'); beep(400, 1); releaseWakeLock(); stopSilentAudioLoop(); }
+            else { setPhase('REST'); beep(1200, 0.5); tabataEndTime.current = Date.now() + restTime * 1000; }
+          } else if (phase === 'REST') {
+            setPhase('WORK'); setCurrentRound(r => r + 1); beep(1200, 0.5); tabataEndTime.current = Date.now() + workTime * 1000;
+          }
         } else { setTimeLeft(remaining); }
-      }, 100); 
+      }, 100);
     }
     return () => clearInterval(t);
   }, [isRunning, phase, currentRound, rounds, workTime, restTime]);
 
   const toggleTabata = () => {
     initAudio();
-    if (!isRunning && phase === 'IDLE') { requestWakeLock(); startSilentAudioLoop(); setPhase('PREP'); setCurrentRound(1); tabataEndTime.current = Date.now() + 5 * 1000; }
-    else if (!isRunning) { requestWakeLock(); startSilentAudioLoop(); tabataEndTime.current = Date.now() + timeLeft * 1000; }
-    else { releaseWakeLock(); stopSilentAudioLoop(); }
+    if (!isRunning && phase === 'IDLE') {
+      requestWakeLock(); startSilentAudioLoop(); setPhase('PREP'); setCurrentRound(1); tabataEndTime.current = Date.now() + 5 * 1000;
+    } else if (!isRunning) {
+      requestWakeLock(); startSilentAudioLoop(); tabataEndTime.current = Date.now() + timeLeft * 1000;
+    } else {
+      releaseWakeLock(); stopSilentAudioLoop();
+    }
     setIsRunning(!isRunning);
   };
 
+  // Загальний таймер Фактичного часу
   useEffect(() => {
     let t: number;
     if (freePhase !== 'Зупинено') {
       lastFreeTick.current = Date.now();
       t = window.setInterval(() => {
-        const now = Date.now(); const deltaSec = (now - lastFreeTick.current) / 1000; lastFreeTick.current = now; setFreeTime(prev => prev + deltaSec);
-        setPhaseTimes(prev => { if (freePhase === 'Розминка') return { ...prev, warmup: prev.warmup + deltaSec }; if (freePhase === 'Основна') return { ...prev, main: prev.main + deltaSec }; if (freePhase === 'Заминка') return { ...prev, cooldown: prev.cooldown + deltaSec }; return prev; });
+        const now = Date.now();
+        const deltaSec = (now - lastFreeTick.current) / 1000;
+        lastFreeTick.current = now;
+        setFreeTime(prev => prev + deltaSec);
+        setPhaseTimes(prev => {
+          if (freePhase === 'Розминка') return { ...prev, warmup: prev.warmup + deltaSec };
+          if (freePhase === 'Основна') return { ...prev, main: prev.main + deltaSec };
+          if (freePhase === 'Заминка') return { ...prev, cooldown: prev.cooldown + deltaSec };
+          return prev;
+        });
       }, 1000);
     }
     return () => clearInterval(t);
   }, [freePhase]);
 
-  const initiateStopFreeWorkout = () => {
-    initAudio(); setFreePhase('Зупинено');
-    if (activeWorkoutData) {
-      setEditTimes({ wm: Math.floor(phaseTimes.warmup / 60), ws: Math.floor(phaseTimes.warmup % 60), mm: Math.floor(phaseTimes.main / 60), ms: Math.floor(phaseTimes.main % 60), cm: Math.floor(phaseTimes.cooldown / 60), cs: Math.floor(phaseTimes.cooldown % 60) });
-      setFinishItems([...initialActiveItems]); setShowTimeEdit(true);
-    } else { setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); }
+  // Таймер відпочинку (Фактичний час)
+  useEffect(() => {
+    let t: number;
+    if (isFreeResting) {
+      t = window.setInterval(() => {
+        const now = Date.now();
+        const remaining = Math.ceil((freeRestEndTime.current - now) / 1000);
+        if (remaining <= 5 && remaining > 0 && lastFreeRestBeep.current !== remaining) {
+          beep(800, 0.1); lastFreeRestBeep.current = remaining;
+        }
+        if (remaining <= 0) {
+          beep(1200, 0.5); setIsFreeResting(false); lastFreeRestBeep.current = 0;
+        } else {
+          setFreeRestTimeLeft(remaining);
+        }
+      }, 100);
+    }
+    return () => clearInterval(t);
+  }, [isFreeResting]);
+
+  const toggleFreeRest = () => {
+    initAudio();
+    if (!isFreeResting) {
+      setFreeRestTimeLeft(freeRestTime);
+      freeRestEndTime.current = Date.now() + freeRestTime * 1000;
+      setIsFreeResting(true);
+    } else {
+      setIsFreeResting(false);
+    }
   };
 
-  const updateFinishItem = (index: number, field: keyof WorkoutItem, value: string) => { const newItems = [...finishItems]; newItems[index] = { ...newItems[index], [field]: value }; setFinishItems(newItems); };
+  const startFreePhase = (newPhase: 'Розминка' | 'Основна' | 'Заминка') => {
+    initAudio();
+    requestWakeLock();
+    startSilentAudioLoop();
+    setFreePhase(newPhase);
+  };
+
+  const initiateStopFreeWorkout = () => {
+    initAudio();
+    releaseWakeLock();
+    stopSilentAudioLoop();
+    setIsFreeResting(false);
+    setFreePhase('Зупинено');
+    if (activeWorkoutData) {
+      setEditTimes({
+        wm: Math.floor(phaseTimes.warmup / 60), ws: Math.floor(phaseTimes.warmup % 60),
+        mm: Math.floor(phaseTimes.main / 60), ms: Math.floor(phaseTimes.main % 60),
+        cm: Math.floor(phaseTimes.cooldown / 60), cs: Math.floor(phaseTimes.cooldown % 60)
+      });
+      setFinishItems([...initialActiveItems]);
+      setShowTimeEdit(true);
+    } else {
+      setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 });
+    }
+  };
+
+  const updateFinishItem = (index: number, field: keyof WorkoutItem, value: string) => {
+    const newItems = [...finishItems]; newItems[index] = { ...newItems[index], [field]: value };
+    setFinishItems(newItems);
+  };
 
   const saveFinalFreeWorkout = async () => {
-    const fw = editTimes.wm * 60 + editTimes.ws; const fm = editTimes.mm * 60 + editTimes.ms; const fc = editTimes.cm * 60 + editTimes.cs; const ft = fw + fm + fc;
-    const breakdownInfo = `[Розминка: ${formatDuration(fw)} | Основна: ${formatDuration(fm)} | Заминка: ${formatDuration(fc)}]`; const finalNote = workoutNote ? `${workoutNote}\n\n${breakdownInfo}` : breakdownInfo;
+    const fw = editTimes.wm * 60 + editTimes.ws; const fm = editTimes.mm * 60 + editTimes.ms; const fc = editTimes.cm * 60 + editTimes.cs;
+    const ft = fw + fm + fc;
+    const breakdownInfo = `[Розминка: ${formatDuration(fw)} | Основна: ${formatDuration(fm)} | Заминка: ${formatDuration(fc)}]`;
+    const finalNote = workoutNote ? `${workoutNote}\n\n${breakdownInfo}` : breakdownInfo;
     const itemsSnapshot = finishItems.map(item => { const ex = exercises?.find(e => e.id === item.exerciseId); return { ...item, exNameSnapshot: ex?.name, exMuscleSnapshot: ex?.muscle }; });
     await db.history.add({ id: crypto.randomUUID(), date: getLocalDateString(new Date()), workoutName: initialActiveName, duration: ft, items: itemsSnapshot, note: finalNote });
     await db.scheduled.delete(activeWorkoutData!.plan.id);
-    setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); setShowTimeEdit(false); navigate('/');
+    setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); setShowTimeEdit(false);
+    navigate('/');
   };
 
   return (
     <div className="p-4 pb-24 relative">
-      {activeWorkoutData && ( <div className="bg-blue-100 border border-blue-300 p-3 rounded-lg mb-4 flex justify-between items-center shadow-sm"><span className="font-bold text-blue-800 text-sm">Виконується: {initialActiveName}</span><button onClick={() => navigate('/')} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button></div> )}
+      {activeWorkoutData && (
+        <div className="bg-blue-100 border border-blue-300 p-3 rounded-lg mb-4 flex justify-between items-center shadow-sm"><span className="font-bold text-blue-800 text-sm">Виконується: {initialActiveName}</span><button onClick={() => navigate('/')} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button></div>
+      )}
       <div className="flex bg-gray-200 rounded-lg p-1 mb-6"><button className={`flex-1 py-2 font-bold rounded-md ${mode === 'TABATA' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('TABATA')}>Табата</button><button className={`flex-1 py-2 font-bold rounded-md ${mode === 'FREE' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('FREE')}>Фактичний час</button></div>
 
       {mode === 'TABATA' ? (
@@ -649,8 +864,21 @@ function Timers() {
       ) : (
         <div className="flex flex-col items-center w-full">
            <div className="text-6xl font-mono mt-4 mb-2">{formatDuration(freeTime)}</div><div className="text-lg font-bold mb-4 text-blue-600 uppercase">{freePhase}</div>
-           <div className="w-full flex justify-between bg-white p-3 rounded-xl shadow-sm mb-6 border border-gray-100"><div className="text-center w-1/3"><div className="text-[10px] text-gray-400 font-bold uppercase">Розминка</div><div className={`font-mono text-lg ${freePhase === 'Розминка' ? 'text-yellow-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.warmup)}</div></div><div className="text-center w-1/3 border-l border-r border-gray-100"><div className="text-[10px] text-gray-400 font-bold uppercase">Основна</div><div className={`font-mono text-lg ${freePhase === 'Основна' ? 'text-red-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.main)}</div></div><div className="text-center w-1/3"><div className="text-[10px] text-gray-400 font-bold uppercase">Заминка</div><div className={`font-mono text-lg ${freePhase === 'Заминка' ? 'text-green-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.cooldown)}</div></div></div>
-           <div className="grid grid-cols-1 gap-3 w-full"><button onClick={() => { initAudio(); setFreePhase('Розминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Розминка' ? 'bg-yellow-400 text-black ring-2 ring-yellow-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Розминку</button><button onClick={() => { initAudio(); setFreePhase('Основна'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Основна' ? 'bg-red-500 text-white ring-2 ring-red-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Основну</button><button onClick={() => { initAudio(); setFreePhase('Заминка'); }} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Заминка' ? 'bg-green-500 text-white ring-2 ring-green-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Заминку</button><button onClick={initiateStopFreeWorkout} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg">{activeWorkoutData ? 'Завершити тренування' : 'Скинути таймер'}</button></div>
+           <div className="w-full flex justify-between bg-white p-3 rounded-xl shadow-sm mb-4 border border-gray-100"><div className="text-center w-1/3"><div className="text-[10px] text-gray-400 font-bold uppercase">Розминка</div><div className={`font-mono text-lg ${freePhase === 'Розминка' ? 'text-yellow-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.warmup)}</div></div><div className="text-center w-1/3 border-l border-r border-gray-100"><div className="text-[10px] text-gray-400 font-bold uppercase">Основна</div><div className={`font-mono text-lg ${freePhase === 'Основна' ? 'text-red-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.main)}</div></div><div className="text-center w-1/3"><div className="text-[10px] text-gray-400 font-bold uppercase">Заминка</div><div className={`font-mono text-lg ${freePhase === 'Заминка' ? 'text-green-500 font-bold' : 'text-gray-700'}`}>{formatDuration(phaseTimes.cooldown)}</div></div></div>
+           
+           <div className="w-full bg-white p-4 rounded-xl shadow-sm mb-6 border border-gray-100">
+             <NumberControl label="Відпочинок між підходами (сек)" value={freeRestTime} setValue={setFreeRestTime as any} />
+             <div className="flex items-center justify-between mt-4">
+                <div className={`text-4xl font-mono font-bold ${isFreeResting ? 'text-green-600' : 'text-gray-400'}`}>
+                   {isFreeResting ? formatDuration(freeRestTimeLeft) : formatDuration(freeRestTime)}
+                </div>
+                <button onClick={toggleFreeRest} className={`px-6 py-3 rounded-xl font-bold shadow-sm ${isFreeResting ? 'bg-red-500 text-white' : 'bg-blue-100 text-blue-700 active:bg-blue-200'}`}>
+                   {isFreeResting ? 'ЗУПИНИТИ' : 'СТАРТ ВІДПОЧИНКУ'}
+                </button>
+             </div>
+           </div>
+
+           <div className="grid grid-cols-1 gap-3 w-full"><button onClick={() => startFreePhase('Розминка')} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Розминка' ? 'bg-yellow-400 text-black ring-2 ring-yellow-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Розминку</button><button onClick={() => startFreePhase('Основна')} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Основна' ? 'bg-red-500 text-white ring-2 ring-red-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Основну</button><button onClick={() => startFreePhase('Заминка')} className={`py-4 rounded-xl font-bold shadow-sm transition-colors ${freePhase === 'Заминка' ? 'bg-green-500 text-white ring-2 ring-green-500 ring-offset-2' : 'bg-gray-100 text-gray-600'}`}>Почати Заминку</button><button onClick={initiateStopFreeWorkout} className="bg-gray-800 text-white py-4 rounded-xl font-bold mt-4 shadow-lg">{activeWorkoutData ? 'Завершити тренування' : 'Скинути таймер'}</button></div>
         </div>
       )}
 
@@ -690,17 +918,22 @@ function Timers() {
 function DataSync() {
   const exportData = async () => {
     const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray() };
-    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' }); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`; a.click();
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`; a.click();
   };
 
   const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; const reader = new FileReader();
+    const file = e.target.files?.[0]; if (!file) return;
+    const reader = new FileReader();
     reader.onload = async (event) => {
       try {
         const data = JSON.parse(event.target?.result as string);
         await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
           await db.exercises.clear(); await db.workouts.clear(); await db.scheduled.clear(); await db.history.clear();
-          if (data.exercises) await db.exercises.bulkAdd(data.exercises); if (data.workouts) await db.workouts.bulkAdd(data.workouts); if (data.scheduled) await db.scheduled.bulkAdd(data.scheduled); if (data.history) await db.history.bulkAdd(data.history);
+          if (data.exercises) await db.exercises.bulkAdd(data.exercises);
+          if (data.workouts) await db.workouts.bulkAdd(data.workouts);
+          if (data.scheduled) await db.scheduled.bulkAdd(data.scheduled);
+          if (data.history) await db.history.bulkAdd(data.history);
         });
         alert('Дані успішно відновлено! Оновіть сторінку.'); window.location.reload();
       } catch (err) { alert('Помилка читання файлу'); }
@@ -709,7 +942,9 @@ function DataSync() {
   };
 
   const clearPhone = async () => {
-    if (window.confirm('УВАГА! Всі локальні дані будуть видалені. Ви зробили бекап?')) { await db.delete(); alert('Телефон очищено. Додаток перезавантажиться.'); window.location.reload(); }
+    if (window.confirm('УВАГА! Всі локальні дані будуть видалені. Ви зробили бекап?')) {
+      await db.delete(); alert('Телефон очищено. Додаток перезавантажиться.'); window.location.reload();
+    }
   };
 
   return (
@@ -728,10 +963,8 @@ export default function App() {
         const insertedExercises = initialExercises.map(ex => ({ id: crypto.randomUUID(), ...ex }));
         await db.exercises.bulkAdd(insertedExercises);
         const workoutsToInsert = initialWorkouts.map(w => {
-          const items = w.exercises.map(exName => {
-            const foundEx = insertedExercises.find(e => e.name === exName); return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' };
-          }).filter(item => item.exerciseId !== '');
-          return { id: crypto.randomUUID(), name: w.name, muscle: w.muscle, items, note: '' };
+          const items = w.exercises.map(exName => { const foundEx = insertedExercises.find(e => e.name === exName); return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' }; }).filter(item => item.exerciseId !== '');
+          return { id: crypto.randomUUID(), name: w.name, muscles: w.muscles, items, note: '' };
         });
         await db.workouts.bulkAdd(workoutsToInsert);
       }
