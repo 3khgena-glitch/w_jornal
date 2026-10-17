@@ -5,7 +5,7 @@ import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
 
 // ==========================================
-// 1. БАЗА ДАНИХ ТА ФУНКЦІЇ ДАТ
+// 1. БАЗА ДАНИХ ТА ДОПОМІЖНІ ФУНКЦІЇ
 // ==========================================
 export interface Exercise { id: string; name: string; category: string; muscle?: string; }
 export interface WorkoutItem { exerciseId: string; weight: string; band: string; reps: string; note: string; exNameSnapshot?: string; exMuscleSnapshot?: string; }
@@ -31,6 +31,10 @@ export class WorkoutJournalDB extends Dexie {
 export const db = new WorkoutJournalDB();
 
 const MUSCLE_GROUPS = ['Груди', 'Ноги', 'Спина', 'Плечі', 'Руки', 'Загальна'];
+
+const generateId = () => {
+  return (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : Date.now().toString(36) + Math.random().toString(36).substring(2);
+};
 
 const formatDuration = (secs: number) => {
   if (!secs || secs === 0) return '--:--';
@@ -67,7 +71,6 @@ function CalendarView() {
 
   const [planSetup, setPlanSetup] = useState<{ date: string; baseWorkoutId: string; editName: string; editItems: WorkoutItem[]; showAddEx: boolean; exSearch: string; } | null>(null);
   const [planNote, setPlanNote] = useState('');
-
   const [historyEditSetup, setHistoryEditSetup] = useState<{ id: string; name: string; mm: number; ss: number; items: WorkoutItem[]; note: string; showAddEx: boolean; exSearch: string; } | null>(null);
 
   useEffect(() => { if (!activePlanAction) setPlanNote(''); }, [activePlanAction]);
@@ -86,32 +89,25 @@ function CalendarView() {
   });
 
   const initiatePlanSetup = (date: string, workout: Workout) => {
-    setPlanSetup({ date, baseWorkoutId: workout.id, editName: workout.name, editItems: workout.items ? [...workout.items] : [], showAddEx: false, exSearch: '' });
+    setPlanSetup({ date, baseWorkoutId: workout.id, editName: workout.name || '', editItems: workout.items ? [...workout.items] : [], showAddEx: false, exSearch: '' });
   };
 
   const savePlanSetup = async () => {
     if (planSetup) {
-      await db.scheduled.add({ id: crypto.randomUUID(), date: planSetup.date, workoutId: planSetup.baseWorkoutId, name: planSetup.editName, items: planSetup.editItems, isCompleted: false });
+      await db.scheduled.add({ id: generateId(), date: planSetup.date, workoutId: planSetup.baseWorkoutId, name: planSetup.editName, items: planSetup.editItems, isCompleted: false });
       setPlanSetup(null);
     }
   };
 
   const startHistoryEdit = (h: History) => {
-    setHistoryEditSetup({
-      id: h.id, name: h.workoutName,
-      mm: Math.floor(h.duration / 60), ss: Math.floor(h.duration % 60),
-      items: h.items ? [...h.items] : [], note: h.note || '',
-      showAddEx: false, exSearch: ''
-    });
+    setHistoryEditSetup({ id: h.id, name: h.workoutName, mm: Math.floor(h.duration / 60), ss: Math.floor(h.duration % 60), items: h.items ? [...h.items] : [], note: h.note || '', showAddEx: false, exSearch: '' });
     setActiveHistoryAction(null);
   };
 
   const saveHistoryEdit = async () => {
     if (historyEditSetup) {
       const duration = (historyEditSetup.mm || 0) * 60 + (historyEditSetup.ss || 0);
-      await db.history.update(historyEditSetup.id, {
-        duration, items: historyEditSetup.items, note: historyEditSetup.note
-      });
+      await db.history.update(historyEditSetup.id, { duration, items: historyEditSetup.items, note: historyEditSetup.note });
       setHistoryEditSetup(null);
     }
   };
@@ -126,13 +122,14 @@ function CalendarView() {
   const handleMarkDone = async (plan: Scheduled) => {
     const wName = plan.name || workouts?.find(w => w.id === plan.workoutId)?.name || 'Невідомо';
     const wItems = plan.items || workouts?.find(w => w.id === plan.workoutId)?.items || [];
-    await db.history.add({ id: crypto.randomUUID(), date: plan.date, workoutName: wName, duration: 0, items: wItems, note: planNote });
+    await db.history.add({ id: generateId(), date: plan.date, workoutName: wName, duration: 0, items: wItems, note: planNote });
     await db.scheduled.delete(plan.id);
     setActivePlanAction(null);
   };
 
   const handleStart = (plan: Scheduled, workout: Workout) => {
-    setActivePlanAction(null); navigate('/timer', { state: { plan, workout } });
+    setActivePlanAction(null);
+    navigate('/timer', { state: { plan, workout } });
   };
 
   const handleCellClickMatrix = (dStr: string, workout: Workout, isPlanned: boolean, planObj?: Scheduled) => {
@@ -144,7 +141,7 @@ function CalendarView() {
     const m1 = a.muscles?.[0] || a.muscle || 'Загальна';
     const m2 = b.muscles?.[0] || b.muscle || 'Загальна';
     if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA');
-    return a.name.localeCompare(b.name, 'uk-UA');
+    return (a.name || '').localeCompare(b.name || '', 'uk-UA');
   });
 
   const filteredMatrixWorkouts = sortedWorkouts?.filter(w => {
@@ -160,7 +157,7 @@ function CalendarView() {
     <div className="p-2 pb-24">
       <div className="flex justify-between items-center mb-4 px-2">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v2.3</span>
+          <span className="text-xs font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v2.4</span>
           <div className="flex bg-gray-200 rounded-lg p-1">
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
             <button className={`px-4 py-1 rounded-md text-sm font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
@@ -188,7 +185,6 @@ function CalendarView() {
               const dStr = getLocalDateString(day);
               const plans = scheduled?.filter(s => s.date === dStr) || [];
               const hists = historyData?.filter(h => h.date === dStr) || [];
-              
               let bgClass = 'bg-white border-transparent'; let textClass = 'text-gray-700'; let content = null;
 
               if (hists.length > 0) { 
@@ -230,7 +226,7 @@ function CalendarView() {
                     <th key={dStr} className={`p-2 border-b text-center min-w-[65px] ${isToday ? 'bg-blue-50' : ''}`}>
                       <div className={`text-[10px] uppercase ${isToday ? 'text-blue-600 font-bold' : 'text-gray-400'}`}>{day.toLocaleDateString('uk-UA', { weekday: 'short' })}</div>
                       <div className={`text-sm font-bold ${isToday ? 'text-blue-700' : 'text-gray-800'}`}>{day.getDate()}.{(day.getMonth() + 1).toString().padStart(2, '0')}</div>
-                      <button onClick={() => setPlanModalDate(dStr)} className="mt-1.5 flex items-center justify-center w-6 h-6 mx-auto bg-gray-100 text-blue-600 rounded-full hover:bg-blue-200 transition-colors"><Plus size={14} /></button>
+                      <button onClick={() => setPlanModalDate(dStr)} className="mt-1.5 flex items-center justify-center w-8 h-8 mx-auto bg-blue-100 text-blue-700 rounded-full hover:bg-blue-200 shadow-sm transition-colors"><Plus size={18} /></button>
                     </th>
                   );
                 })}
@@ -239,7 +235,7 @@ function CalendarView() {
             <tbody>
               {filteredMatrixWorkouts?.length === 0 && (
                 <tr>
-                  <td colSpan={6} className="text-center p-6 text-gray-400 text-sm">В цьому періоді немає тренувань. Натисніть "+" на даті, щоб додати.</td>
+                  <td colSpan={6} className="text-center p-6 text-gray-400 text-sm">В цьому періоді немає тренувань. Натисніть синій "+" на даті, щоб додати.</td>
                 </tr>
               )}
               {filteredMatrixWorkouts?.map(w => {
@@ -254,7 +250,7 @@ function CalendarView() {
                       const dStr = getLocalDateString(day); const isToday = dStr === todayStr;
                       const hist = historyData?.find(h => h.date === dStr && h.workoutName === w.name);
                       const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
-                      const firstLetter = (plan?.name || w.name).charAt(0).toUpperCase();
+                      const firstLetter = (plan?.name || w.name || '?').charAt(0).toUpperCase();
 
                       return (
                         <td key={dStr} className={`p-1 border-b text-center align-middle border-l border-gray-100 ${isToday && !hist ? 'bg-blue-50/50' : ''}`}>
@@ -310,9 +306,7 @@ function CalendarView() {
               })}
               <button onClick={() => setHistoryEditSetup({...historyEditSetup, showAddEx: true, exSearch: ''})} className="w-full py-3 bg-blue-50 text-blue-600 rounded-lg font-bold border border-dashed border-blue-300 flex justify-center items-center gap-2"><Plus size={18}/> Додати вправу</button>
             </div>
-            
             <textarea value={historyEditSetup.note} onChange={e => setHistoryEditSetup({...historyEditSetup, note: e.target.value})} placeholder="Примітка до тренування..." className="w-full p-3 border rounded-lg bg-gray-50 text-sm shadow-sm min-h-[60px] mb-4" />
-
             <div className="flex gap-3 mt-auto shrink-0">
               <button onClick={() => setHistoryEditSetup(null)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Скасувати</button>
               <button onClick={saveHistoryEdit} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold flex justify-center items-center gap-2"><Save size={18}/> Зберегти зміни</button>
@@ -386,6 +380,20 @@ function CalendarView() {
                 </div>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Модалка вибору шаблону для дати */}
+      {planModalDate && (
+        <div className="fixed inset-0 bg-black/50 flex items-end z-[100] pb-20">
+          <div className="bg-white w-full rounded-t-2xl p-4 max-h-[70vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Вибір шаблону</h3><button onClick={() => setPlanModalDate(null)} className="text-red-500 bg-red-50 rounded-full p-1"><X size={20}/></button></div>
+            <div className="space-y-2">
+              {workouts?.slice().sort((a, b) => (a.name || '').localeCompare(b.name || '', 'uk-UA')).map(w => (
+                <button key={w.id} onClick={() => handlePlan(w)} className="w-full text-left p-4 bg-gray-50 rounded-xl font-bold border active:bg-gray-200 shadow-sm">{w.name}</button>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -477,7 +485,7 @@ function Workouts() {
   const startEdit = (w: Workout | null) => {
     if (w) { 
       setEditingId(w.id); 
-      setName(w.name); 
+      setName(w.name || ''); 
       setMuscles(w.muscles?.length ? w.muscles : (w.muscle ? [w.muscle] : ['Загальна'])); 
       setItems(w.items || []); 
     }
@@ -492,7 +500,7 @@ function Workouts() {
   const saveWorkout = async () => {
     if (!name.trim()) return;
     const data = { name, muscles, items, note: '' };
-    if (editingId === 'new') await db.workouts.add({ id: crypto.randomUUID(), ...data });
+    if (editingId === 'new') await db.workouts.add({ id: generateId(), ...data });
     else if (editingId) await db.workouts.update(editingId, data);
     setEditingId(null);
   };
@@ -575,7 +583,7 @@ function Workouts() {
     const m1 = a.muscles?.[0] || a.muscle || 'Загальна';
     const m2 = b.muscles?.[0] || b.muscle || 'Загальна';
     if (m1 !== m2) return m1.localeCompare(m2, 'uk-UA');
-    return a.name.localeCompare(b.name, 'uk-UA');
+    return (a.name || '').localeCompare(b.name || '', 'uk-UA');
   });
 
   return (
@@ -621,7 +629,7 @@ function Exercises() {
   const saveExercise = async () => {
     if (!formName.trim()) return;
     if (editId) await db.exercises.update(editId, { name: formName, muscle: formMuscle });
-    else await db.exercises.add({ id: crypto.randomUUID(), name: formName, category: 'Користувацькі', muscle: formMuscle });
+    else await db.exercises.add({ id: generateId(), name: formName, category: 'Користувацькі', muscle: formMuscle });
     setModalOpen(false);
   };
 
@@ -667,22 +675,36 @@ function Timers() {
   const navigate = useNavigate();
   const exercises = useLiveQuery(() => db.exercises.toArray());
   
-  const [savedWorkoutData, setSavedWorkoutData] = useState<{ plan: Scheduled, workout: Workout } | null>(() => {
-    if (location.state) {
-      localStorage.setItem('active_workout_backup', JSON.stringify(location.state));
-      return location.state;
-    }
-    const backup = localStorage.getItem('active_workout_backup');
-    return backup ? JSON.parse(backup) : null;
-  });
+  const [savedWorkoutData, setSavedWorkoutData] = useState<{ plan: Scheduled, workout: Workout } | null>(null);
+  const [finishItems, setFinishItems] = useState<WorkoutItem[]>([]);
 
-  const [mode, setMode] = useState<'TABATA' | 'FREE'>(savedWorkoutData ? 'FREE' : 'TABATA');
+  useEffect(() => {
+    let data = null;
+    if (location.state) {
+      data = location.state as { plan: Scheduled, workout: Workout };
+      localStorage.setItem('active_workout_backup', JSON.stringify(data));
+      window.history.replaceState({}, ''); // Очищаємо кеш роутера, щоб не дублювати стан
+    } else {
+      const backup = localStorage.getItem('active_workout_backup');
+      if (backup) {
+        try { data = JSON.parse(backup); } catch(e) {}
+      }
+    }
+    setSavedWorkoutData(data);
+  }, [location.state]);
+
+  useEffect(() => {
+    if (savedWorkoutData) {
+      setFinishItems(savedWorkoutData.plan?.items || savedWorkoutData.workout?.items || []);
+    }
+  }, [savedWorkoutData]);
+
+  const [mode, setMode] = useState<'TABATA' | 'FREE'>(localStorage.getItem('active_workout_backup') ? 'FREE' : 'TABATA');
   
   const audioCtx = useRef<AudioContext | null>(null);
   const wakeLockRef = useRef<any>(null);
   const silentOscRef = useRef<any>(null);
 
-  // Табата
   const [workTime, setWorkTime] = useState<number | ''>(() => Number(localStorage.getItem('tabata_work')) || 20);
   const [restTime, setRestTime] = useState<number | ''>(() => Number(localStorage.getItem('tabata_rest')) || 10);
   const [rounds, setRounds] = useState<number | ''>(() => Number(localStorage.getItem('tabata_rounds')) || 8);
@@ -693,14 +715,12 @@ function Timers() {
   const tabataEndTime = useRef(0);
   const lastTabataBeep = useRef(0);
 
-  // Фактичний час
   const [freeTime, setFreeTime] = useState(0);
   const [freePhase, setFreePhase] = useState<'Розминка' | 'Основна' | 'Заминка' | 'Зупинено'>('Зупинено');
   const [workoutNote, setWorkoutNote] = useState('');
   const [phaseTimes, setPhaseTimes] = useState({ warmup: 0, main: 0, cooldown: 0 });
   const lastFreeTick = useRef(Date.now());
 
-  // Таймер відпочинку (Фактичний час)
   const [freeRestTime, setFreeRestTime] = useState<number | ''>(() => Number(localStorage.getItem('free_rest_time')) || 60);
   const [freeRestTimeLeft, setFreeRestTimeLeft] = useState(Number(freeRestTime) || 60);
   const [isFreeResting, setIsFreeResting] = useState(false);
@@ -710,12 +730,10 @@ function Timers() {
   const [showTimeEdit, setShowTimeEdit] = useState(false);
   const [editTimes, setEditTimes] = useState({ wm:0, ws:0, mm:0, ms:0, cm:0, cs:0 });
   
-  const initialActiveItems = savedWorkoutData?.plan?.items || savedWorkoutData?.workout?.items || [];
-  const initialActiveName = savedWorkoutData?.plan?.name || savedWorkoutData?.workout?.name || '';
-  const [finishItems, setFinishItems] = useState<WorkoutItem[]>(initialActiveItems);
-  
   const [showFinishAddEx, setShowFinishAddEx] = useState(false);
   const [finishExSearch, setFinishExSearch] = useState('');
+
+  const activeName = savedWorkoutData?.plan?.name || savedWorkoutData?.workout?.name || '';
 
   useEffect(() => {
     if (typeof workTime === 'number') localStorage.setItem('tabata_work', String(workTime));
@@ -783,7 +801,6 @@ function Timers() {
 
   useEffect(() => { if (phase === 'IDLE') setTimeLeft(Number(workTime) || 20); }, [workTime, phase]);
 
-  // Табата логіка
   useEffect(() => {
     let t: number;
     const safeWork = Number(workTime) || 20;
@@ -794,25 +811,15 @@ function Timers() {
       t = window.setInterval(() => {
         const now = Date.now();
         const remaining = Math.ceil((tabataEndTime.current - now) / 1000);
-        if (remaining <= 3 && remaining > 0 && lastTabataBeep.current !== remaining) {
-          beep(800, 0.1); lastTabataBeep.current = remaining;
-        }
+        if (remaining <= 3 && remaining > 0 && lastTabataBeep.current !== remaining) { beep(800, 0.1); lastTabataBeep.current = remaining; }
         if (remaining <= 0) {
           lastTabataBeep.current = 0;
-          if (phase === 'PREP') {
-            setPhase('WORK'); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeWork * 1000;
-          } else if (phase === 'WORK') {
-            if (currentRound >= safeRounds) {
-              setIsRunning(false); setPhase('IDLE'); beep(400, 1); releaseWakeLock(); stopSilentAudioLoop();
-            } else {
-              setPhase('REST'); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeRest * 1000;
-            }
-          } else if (phase === 'REST') {
-            setPhase('WORK'); setCurrentRound(r => r + 1); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeWork * 1000;
-          }
-        } else {
-          setTimeLeft(remaining);
-        }
+          if (phase === 'PREP') { setPhase('WORK'); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeWork * 1000; }
+          else if (phase === 'WORK') {
+            if (currentRound >= safeRounds) { setIsRunning(false); setPhase('IDLE'); beep(400, 1); releaseWakeLock(); stopSilentAudioLoop(); }
+            else { setPhase('REST'); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeRest * 1000; }
+          } else if (phase === 'REST') { setPhase('WORK'); setCurrentRound(r => r + 1); beep(1200, 0.5); tabataEndTime.current = Date.now() + safeWork * 1000; }
+        } else { setTimeLeft(remaining); }
       }, 100);
     }
     return () => clearInterval(t);
@@ -820,17 +827,12 @@ function Timers() {
 
   const toggleTabata = () => {
     initAudio();
-    if (!isRunning && phase === 'IDLE') {
-      requestWakeLock(); startSilentAudioLoop(); setPhase('PREP'); setCurrentRound(1); tabataEndTime.current = Date.now() + 5 * 1000;
-    } else if (!isRunning) {
-      requestWakeLock(); startSilentAudioLoop(); tabataEndTime.current = Date.now() + timeLeft * 1000;
-    } else {
-      releaseWakeLock(); stopSilentAudioLoop();
-    }
+    if (!isRunning && phase === 'IDLE') { requestWakeLock(); startSilentAudioLoop(); setPhase('PREP'); setCurrentRound(1); tabataEndTime.current = Date.now() + 5 * 1000; }
+    else if (!isRunning) { requestWakeLock(); startSilentAudioLoop(); tabataEndTime.current = Date.now() + timeLeft * 1000; }
+    else { releaseWakeLock(); stopSilentAudioLoop(); }
     setIsRunning(!isRunning);
   };
 
-  // Фактичний час загальний таймер
   useEffect(() => {
     let t: number;
     if (freePhase !== 'Зупинено') {
@@ -851,21 +853,15 @@ function Timers() {
     return () => clearInterval(t);
   }, [freePhase]);
 
-  // Таймер відпочинку (Фактичний час) логіка
   useEffect(() => {
     let t: number;
     if (isFreeResting) {
       t = window.setInterval(() => {
         const now = Date.now();
         const remaining = Math.ceil((freeRestEndTime.current - now) / 1000);
-        if (remaining <= 5 && remaining > 0 && lastFreeRestBeep.current !== remaining) {
-          beep(800, 0.1); lastFreeRestBeep.current = remaining;
-        }
-        if (remaining <= 0) {
-          beep(1200, 0.5); setIsFreeResting(false); lastFreeRestBeep.current = 0;
-        } else {
-          setFreeRestTimeLeft(remaining);
-        }
+        if (remaining <= 5 && remaining > 0 && lastFreeRestBeep.current !== remaining) { beep(800, 0.1); lastFreeRestBeep.current = remaining; }
+        if (remaining <= 0) { beep(1200, 0.5); setIsFreeResting(false); lastFreeRestBeep.current = 0; }
+        else { setFreeRestTimeLeft(remaining); }
       }, 100);
     }
     return () => clearInterval(t);
@@ -873,14 +869,8 @@ function Timers() {
 
   const toggleFreeRest = () => {
     initAudio();
-    if (!isFreeResting) {
-      const safeTime = Number(freeRestTime) || 60;
-      setFreeRestTimeLeft(safeTime);
-      freeRestEndTime.current = Date.now() + safeTime * 1000;
-      setIsFreeResting(true);
-    } else {
-      setIsFreeResting(false);
-    }
+    if (!isFreeResting) { const safeTime = Number(freeRestTime) || 60; setFreeRestTimeLeft(safeTime); freeRestEndTime.current = Date.now() + safeTime * 1000; setIsFreeResting(true); }
+    else { setIsFreeResting(false); }
   };
 
   const startFreePhase = (newPhase: 'Розминка' | 'Основна' | 'Заминка') => {
@@ -898,12 +888,7 @@ function Timers() {
     setFreePhase('Зупинено');
     
     if (savedWorkoutData) {
-      setEditTimes({
-        wm: Math.floor(phaseTimes.warmup / 60), ws: Math.floor(phaseTimes.warmup % 60),
-        mm: Math.floor(phaseTimes.main / 60), ms: Math.floor(phaseTimes.main % 60),
-        cm: Math.floor(phaseTimes.cooldown / 60), cs: Math.floor(phaseTimes.cooldown % 60)
-      });
-      setFinishItems([...initialActiveItems]);
+      setEditTimes({ wm: Math.floor(phaseTimes.warmup / 60), ws: Math.floor(phaseTimes.warmup % 60), mm: Math.floor(phaseTimes.main / 60), ms: Math.floor(phaseTimes.main % 60), cm: Math.floor(phaseTimes.cooldown / 60), cs: Math.floor(phaseTimes.cooldown % 60) });
       setShowTimeEdit(true);
     } else {
       setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 });
@@ -926,15 +911,10 @@ function Timers() {
     const ft = fw + fm + fc;
     const breakdownInfo = `[Розминка: ${formatDuration(fw)} | Основна: ${formatDuration(fm)} | Заминка: ${formatDuration(fc)}]`;
     const finalNote = workoutNote ? `${workoutNote}\n\n${breakdownInfo}` : breakdownInfo;
-    const itemsSnapshot = finishItems.map(item => {
-      const ex = exercises?.find(e => e.id === item.exerciseId);
-      return { ...item, exNameSnapshot: ex?.name, exMuscleSnapshot: ex?.muscle };
-    });
+    const itemsSnapshot = finishItems.map(item => { const ex = exercises?.find(e => e.id === item.exerciseId); return { ...item, exNameSnapshot: ex?.name, exMuscleSnapshot: ex?.muscle }; });
     
-    await db.history.add({ id: crypto.randomUUID(), date: getLocalDateString(new Date()), workoutName: initialActiveName, duration: ft, items: itemsSnapshot, note: finalNote });
-    if (savedWorkoutData?.plan?.id) {
-       await db.scheduled.delete(savedWorkoutData.plan.id);
-    }
+    await db.history.add({ id: generateId(), date: getLocalDateString(new Date()), workoutName: activeName, duration: ft, items: itemsSnapshot, note: finalNote });
+    if (savedWorkoutData?.plan?.id) await db.scheduled.delete(savedWorkoutData.plan.id);
     
     setFreeTime(0); setPhaseTimes({ warmup: 0, main: 0, cooldown: 0 }); setShowTimeEdit(false);
     clearActiveWorkout();
@@ -943,7 +923,7 @@ function Timers() {
   return (
     <div className="p-4 pb-24 relative">
       {savedWorkoutData && (
-        <div className="bg-blue-100 border border-blue-300 p-3 rounded-lg mb-4 flex justify-between items-center shadow-sm"><span className="font-bold text-blue-800 text-sm">Виконується: {initialActiveName}</span><button onClick={clearActiveWorkout} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button></div>
+        <div className="bg-blue-100 border border-blue-300 p-3 rounded-lg mb-4 flex justify-between items-center shadow-sm"><span className="font-bold text-blue-800 text-sm">Виконується: {activeName}</span><button onClick={clearActiveWorkout} className="text-blue-500 bg-white rounded-full p-1"><X size={16}/></button></div>
       )}
       <div className="flex bg-gray-200 rounded-lg p-1 mb-6"><button className={`flex-1 py-2 font-bold rounded-md ${mode === 'TABATA' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('TABATA')}>Табата</button><button className={`flex-1 py-2 font-bold rounded-md ${mode === 'FREE' ? 'bg-white shadow' : 'text-gray-500'}`} onClick={() => setMode('FREE')}>Фактичний час</button></div>
 
@@ -1074,14 +1054,14 @@ export default function App() {
     const initDb = async () => {
       const exCount = await db.exercises.count();
       if (exCount === 0) {
-        const insertedExercises = initialExercises.map(ex => ({ id: crypto.randomUUID(), ...ex }));
+        const insertedExercises = initialExercises.map(ex => ({ id: generateId(), ...ex }));
         await db.exercises.bulkAdd(insertedExercises);
         const workoutsToInsert = initialWorkouts.map(w => {
           const items = w.exercises.map(exName => {
             const foundEx = insertedExercises.find(e => e.name === exName);
             return { exerciseId: foundEx ? foundEx.id : '', weight: '', band: '', reps: '', note: '' };
           }).filter(item => item.exerciseId !== '');
-          return { id: crypto.randomUUID(), name: w.name, muscle: w.muscle, items, note: '' };
+          return { id: generateId(), name: w.name, muscle: w.muscle, items, note: '' };
         });
         await db.workouts.bulkAdd(workoutsToInsert);
       }
