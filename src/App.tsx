@@ -363,4 +363,218 @@ function CalendarView() {
                     const plan = scheduled?.find(s => s.date === dStr && s.workoutId === w.id);
                     const letter = (plan?.name || w.name).charAt(0).toUpperCase();
                     return (
-                      <td key={dStr} className={`p-0.5 border-
+                     <div className="grid grid-cols-3 gap-1.5">
+                    <input type="text" placeholder="Вага" value={it.weight} onChange={e => t.updateFinishItem(idx, 'weight', e.target.value)} className="p-1.5 border rounded text-xs bg-white" />
+                    <input type="text" placeholder="Еспандер" value={it.band} onChange={e => t.updateFinishItem(idx, 'band', e.target.value)} className="p-1.5 border rounded text-xs bg-white" />
+                    <input type="text" inputMode="text" placeholder="5x8" value={it.reps} onChange={e => t.updateFinishItem(idx, 'reps', e.target.value)} className="p-1.5 border rounded text-xs bg-white" />
+                  </div>
+                </div>
+              ))}
+              <button onClick={() => t.setShowFinishAddEx(true)} className="w-full py-2 bg-blue-50 text-blue-600 rounded-lg font-bold text-xs border border-dashed border-blue-300">+ Додати вправу</button>
+              <textarea value={t.workoutNote} onChange={e => t.setWorkoutNote(e.target.value)} placeholder="Примітка до тренування..." className="w-full p-2.5 border rounded-lg bg-gray-50 text-sm min-h-[70px]" />
+            </div>
+            <div className="flex gap-3 shrink-0">
+              <button onClick={() => t.setShowTimeEdit(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Скасувати</button>
+              <button onClick={t.saveFinalFreeWorkout} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold flex items-center justify-center gap-2"><Save size={18} /> Зберегти</button>
+            </div>
+          </div>
+          {t.showFinishAddEx && (
+            <ExercisePickerModal
+              exercises={exercises}
+              onClose={() => t.setShowFinishAddEx(false)}
+              onSelect={ex => {
+                t.setFinishItems([...t.finishItems, { exerciseId: ex.id, weight: '', band: '', reps: '', note: '' }]);
+                t.setShowFinishAddEx(false);
+              }}
+            />
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// 8. ДАНІ ТА ЕКСПОРТ ДЛЯ АНАЛІЗУ (CSV)
+// ==========================================
+function DataSync() {
+  const [csvPeriod, setCsvPeriod] = useState<'all' | '30' | '7'>('all');
+  const [copyStatus, setCopyStatus] = useState('');
+
+  const buildAnalysisCSV = async () => {
+    const history = await db.history.toArray();
+    const exercises = await db.exercises.toArray();
+    const workouts = await db.workouts.toArray();
+
+    let filtered = history.sort((a, b) => a.date.localeCompare(b.date));
+    if (csvPeriod !== 'all') {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - Number(csvPeriod));
+      const cutoffStr = getLocalDateString(cutoff);
+      filtered = filtered.filter(h => h.date >= cutoffStr);
+    }
+
+    const esc = (val: string | number | undefined) => `"${String(val ?? '').replace(/\r?\n/g, ' ').replace(/"/g, '""')}"`;
+    const header = ['Дата', 'Тренування', "Група м'язів", 'Загальний час', 'Розминка', 'Основна', 'Заминка', 'Вправа', 'Вага', 'Еспандер', 'Повтори', 'Примітка'];
+    const rows: string[] = [header.map(esc).join(',')];
+
+    for (const h of filtered) {
+      const w = workouts.find(x => x.id === h.workoutId || x.name === h.workoutName);
+      const noteText = h.note || '';
+      const m = noteText.match(/\[Розминка:\s*([^|]+)\|\s*Основна:\s*([^|]+)\|\s*Заминка:\s*([^\]]+)\]/);
+      const cleanNote = noteText.replace(/\[Розминка:[^\]]+\]/, '').trim();
+      const items = h.items && h.items.length > 0 ? h.items : [{ exerciseId: '', weight: '', band: '', reps: '', note: '' }];
+      for (const item of items) {
+        const ex = exercises.find(e => e.id === item.exerciseId);
+        rows.push([
+          h.date, h.workoutName, w?.muscle || 'Загальна', formatDuration(h.duration),
+          m ? m[1].trim() : '', m ? m[2].trim() : '', m ? m[3].trim() : '',
+          item.exNameSnapshot || ex?.name || '', item.weight, item.band, item.reps, cleanNote
+        ].map(esc).join(','));
+      }
+    }
+    return rows.join('\n');
+  };
+
+  const downloadCSV = async () => {
+    const csv = await buildAnalysisCSV();
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `w_jornal_analysis_${getLocalDateString(new Date())}.csv`;
+    a.click();
+  };
+
+  const copyCSV = async () => {
+    const csv = await buildAnalysisCSV();
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopyStatus('Скопійовано! Можна вставляти в чат.');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch {
+      alert('Не вдалося скопіювати автоматично. Скористайтесь кнопкою «Завантажити CSV».');
+    }
+  };
+
+  const exportData = async () => {
+    const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray() };
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`;
+    a.click();
+  };
+
+  const importData = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async ev => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
+          await db.exercises.clear(); await db.workouts.clear(); await db.scheduled.clear(); await db.history.clear();
+          if (data.exercises) await db.exercises.bulkAdd(data.exercises);
+          if (data.workouts) await db.workouts.bulkAdd(data.workouts);
+          if (data.scheduled) await db.scheduled.bulkAdd(data.scheduled);
+          if (data.history) await db.history.bulkAdd(data.history);
+        });
+        alert('Дані успішно відновлено! Сторінка оновиться.');
+        window.location.reload();
+      } catch { alert('Помилка читання файлу'); }
+    };
+    reader.readAsText(file);
+  };
+
+  const clearPhone = async () => {
+    if (window.confirm('УВАГА! Всі локальні дані будуть видалені. Ви зробили бекап?')) {
+      await db.delete();
+      alert('Телефон очищено. Додаток перезавантажиться.');
+      window.location.reload();
+    }
+  };
+
+  return (
+    <div className="p-4 pb-24">
+      <h2 className="text-2xl font-bold mb-5">Хмара / Дані</h2>
+      <div className="space-y-4">
+        <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
+          <h3 className="font-bold text-blue-800 mb-2">Аналіз тренувань (CSV)</h3>
+          <select value={csvPeriod} onChange={e => setCsvPeriod(e.target.value as any)} className="w-full p-2.5 border rounded-lg mb-3 bg-gray-50 text-sm font-medium">
+            <option value="all">За весь час</option>
+            <option value="30">За останні 30 днів</option>
+            <option value="7">За останні 7 днів</option>
+          </select>
+          <div className="flex gap-2">
+            <button onClick={downloadCSV} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5"><Download size={16} /> Завантажити CSV</button>
+            <button onClick={copyCSV} className="flex-1 bg-blue-50 text-blue-700 py-3 rounded-lg font-bold text-sm border border-blue-200 flex items-center justify-center gap-1.5"><Copy size={16} /> Скопіювати звіт</button>
+          </div>
+          {copyStatus && <div className="text-xs text-green-600 font-bold mt-2 text-center">{copyStatus}</div>}
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <h3 className="font-bold mb-2">Експорт (Повний бекап JSON)</h3>
+          <button onClick={exportData} className="w-full bg-gray-800 text-white py-3 rounded-lg font-bold">Вивантажити бекап</button>
+        </div>
+        <div className="bg-white p-4 rounded-xl border shadow-sm">
+          <h3 className="font-bold mb-2">Відновлення з файлу JSON</h3>
+          <input type="file" accept=".json" onChange={importData} className="w-full text-sm" />
+        </div>
+        <div className="bg-red-50 p-4 rounded-xl border border-red-200 mt-6">
+          <h3 className="font-bold text-red-700 mb-2">Небезпечна зона</h3>
+          <button onClick={clearPhone} className="w-full bg-red-600 text-white py-3 rounded-lg font-bold">Очистити телефон</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// 9. НАВІГАЦІЯ ТА ІНІЦІАЛІЗАЦІЯ
+// ==========================================
+export default function App() {
+  useEffect(() => {
+    const initDb = async () => {
+      if ((await db.exercises.count()) === 0) {
+        const insertedExercises = initialExercises.map(ex => ({ id: generateId(), ...ex }));
+        await db.exercises.bulkAdd(insertedExercises);
+        const workoutsToInsert = initialWorkouts.map(w => ({
+          id: generateId(),
+          name: w.name,
+          muscle: w.muscle,
+          items: w.exercises
+            .map(exName => {
+              const found = insertedExercises.find(e => e.name === exName);
+              return { exerciseId: found ? found.id : '', weight: '', band: '', reps: '', note: '' };
+            })
+            .filter(it => it.exerciseId !== ''),
+          note: ''
+        }));
+        await db.workouts.bulkAdd(workoutsToInsert);
+      }
+    };
+    initDb();
+  }, []);
+
+  return (
+    <BrowserRouter basename="/w_jornal">
+      <TimerProvider>
+        <div className="min-h-screen bg-gray-50 font-sans">
+          <Routes>
+            <Route path="/" element={<CalendarView />} />
+            <Route path="/workouts" element={<Workouts />} />
+            <Route path="/exercises" element={<Exercises />} />
+            <Route path="/timer" element={<Timers />} />
+            <Route path="/data" element={<DataSync />} />
+          </Routes>
+          <nav className="fixed bottom-0 w-full bg-white border-t flex justify-between px-2 py-3 pb-6 shadow-[0_-5px_15px_-10px_rgba(0,0,0,0.1)] z-50">
+            <Link to="/" className="flex flex-col items-center text-gray-600 w-1/5"><CalendarIcon size={22} /><span className="text-[9px] mt-1 font-bold uppercase">План</span></Link>
+            <Link to="/workouts" className="flex flex-col items-center text-gray-600 w-1/5"><Activity size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Тренування</span></Link>
+            <Link to="/exercises" className="flex flex-col items-center text-gray-600 w-1/5"><Dumbbell size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Вправи</span></Link>
+            <Link to="/timer" className="flex flex-col items-center text-gray-600 w-1/5"><TimerIcon size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Таймер</span></Link>
+            <Link to="/data" className="flex flex-col items-center text-gray-600 w-1/5"><Settings size={22} /><span className="text-[9px] mt-1 font-bold uppercase">Дані</span></Link>
+          </nav>
+        </div>
+      </TimerProvider>
+    </BrowserRouter>
+  );
+}
