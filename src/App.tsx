@@ -651,7 +651,7 @@ function CalendarView() {
                       </div>
                       <span className="text-sm font-mono font-bold bg-green-100 text-green-800 px-2.5 py-1 rounded-lg border border-green-200">{formatDuration(hist.duration)}</span>
                     </div>
-                    {hist.items?.length > 0 && (
+                    {hist.items && hist.items.length > 0 && (
                       <div className="bg-white rounded-lg p-2.5 border border-green-100 space-y-1.5">
                         {hist.items.map((it, idx) => (
                           <div key={idx} className="flex justify-between text-xs border-b border-gray-50 pb-1 last:border-0 last:pb-0">
@@ -754,7 +754,7 @@ function CalendarView() {
           <div className="bg-white w-full rounded-t-2xl p-4 max-h-[80vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-3 border-b pb-2"><h3 className="font-bold text-lg text-green-800 flex items-center gap-2"><CheckCircle2 /> {activeHistoryAction.workoutName}</h3><button onClick={() => setActiveHistoryAction(null)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button></div>
             <div className="text-2xl font-mono text-gray-800 mb-3">{formatDuration(activeHistoryAction.duration)}</div>
-            {activeHistoryAction.items?.length > 0 && (
+            {activeHistoryAction.items && activeHistoryAction.items.length > 0 && (
               <div className="mb-3 bg-gray-50 p-3 rounded-xl border space-y-1">
                 {activeHistoryAction.items.map((it, idx) => (
                   <div key={idx} className="text-xs flex justify-between border-b border-gray-200/60 pb-1 last:border-0">
@@ -1103,7 +1103,7 @@ function DataSync() {
       const noteText = h.note || '';
       const m = noteText.match(/\[Розминка:\s*([^|]+)\|\s*Основна:\s*([^|]+)\|\s*Заминка:\s*([^\]]+)\]/);
       const cleanNote = noteText.replace(/\[Розминка:[^\]]+\]/, '').trim();
-      const items = h.items?.length > 0 ? h.items : [{ exerciseId: '', weight: '', band: '', reps: '', note: '' }];
+      const items = h.items && h.items.length > 0 ? h.items : [{ exerciseId: '', weight: '', band: '', reps: '', note: '' }];
       for (const item of items) {
         const ex = exercises.find(e => e.id === item.exerciseId);
         rows.push([h.date, h.workoutName, w?.muscle || 'Загальна', formatDuration(h.duration), m ? m[1].trim() : '', m ? m[2].trim() : '', m ? m[3].trim() : '', item.exNameSnapshot || ex?.name || '', item.weight, item.band, item.reps, cleanNote].map(esc).join(','));
