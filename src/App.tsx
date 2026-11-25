@@ -75,29 +75,112 @@ function useMuscleGroups() {
   const renameGroup = async (oldName: string, newName: string) => {
     const t = newName.trim();
     if (!t || t === oldName) return;
-    setGroups(saveStoredMuscleGroups(allGroups.map(g => (g === oldName ? t : g))));
     for (const ex of (await db.exercises.toArray()).filter(e => e.muscle === oldName)) await db.exercises.update(ex.id, { muscle: t });
     for (const w of (await db.workouts.toArray()).filter(w => w.muscle === oldName)) await db.workouts.update(w.id, { muscle: t });
+    setGroups(saveStoredMuscleGroups(allGroups.map(g => (g === oldName ? t : g))));
   };
 
   const deleteGroup = async (name: string) => {
     const rem = allGroups.filter(g => g !== name);
-    const fallback = rem[0] || 'Загальна';
-    setGroups(saveStoredMuscleGroups(rem.length > 0 ? rem : ['Загальна']));
+    const fallback = rem.includes('Загальна') ? 'Загальна' : (rem[0] || 'Загальна');
     for (const ex of (await db.exercises.toArray()).filter(e => e.muscle === name)) await db.exercises.update(ex.id, { muscle: fallback });
     for (const w of (await db.workouts.toArray()).filter(w => w.muscle === name)) await db.workouts.update(w.id, { muscle: fallback });
+    setGroups(saveStoredMuscleGroups(rem.length > 0 ? rem : ['Загальна']));
   };
 
   return { muscleGroups: allGroups, addGroup, renameGroup, deleteGroup };
 }
 
-function MuscleGroupField({ value, onChange, muscleGroups, onAddGroup }: { value: string; onChange: (val: string) => void; muscleGroups: string[]; onAddGroup: (name: string) => void; }) {
+function MuscleGroupsManagerModal({ onClose }: { onClose: () => void }) {
+  const { muscleGroups, addGroup, renameGroup, deleteGroup } = useMuscleGroups();
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroup, setEditingGroup] = useState<string | null>(null);
+  const [editingGroupVal, setEditingGroupVal] = useState('');
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[130] p-2 pb-20">
+      <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-2xl max-h-[85vh] flex flex-col">
+        <div className="flex justify-between items-center mb-3 border-b pb-2 shrink-0">
+          <h3 className="font-bold text-lg">Керування групами м'язів</h3>
+          <button onClick={onClose} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
+        </div>
+
+        <div className="flex gap-2 mb-3 shrink-0">
+          <input
+            value={newGroupName}
+            onChange={e => setNewGroupName(e.target.value)}
+            placeholder="Нова група (напр. Прес, Кардіо)..."
+            className="flex-1 p-2.5 border rounded-lg bg-gray-50 text-sm font-medium"
+          />
+          <button
+            type="button"
+            onClick={() => { if (newGroupName.trim()) { addGroup(newGroupName.trim()); setNewGroupName(''); } }}
+            className="px-4 bg-blue-600 text-white rounded-lg font-bold text-sm"
+          >
+            Додати
+          </button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto space-y-2 pb-2">
+          {muscleGroups.map(g => (
+            <div key={g} className="p-2.5 bg-gray-50 border rounded-xl flex items-center justify-between gap-2">
+              {editingGroup === g ? (
+                <>
+                  <input
+                    value={editingGroupVal}
+                    onChange={e => setEditingGroupVal(e.target.value)}
+                    className="flex-1 p-2 border border-blue-400 rounded-lg bg-white text-sm font-bold"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => { await renameGroup(g, editingGroupVal); setEditingGroup(null); }}
+                    className="p-2 bg-blue-600 text-white rounded-lg"
+                  >
+                    <Save size={16} />
+                  </button>
+                  <button type="button" onClick={() => setEditingGroup(null)} className="p-2 bg-gray-200 text-gray-600 rounded-lg"><X size={16} /></button>
+                </>
+              ) : (
+                <>
+                  <span className="font-bold text-sm text-gray-800 pl-1">{g}</span>
+                  <div className="flex gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => { setEditingGroup(g); setEditingGroupVal(g); }}
+                      className="px-2.5 py-1.5 bg-white border rounded-lg text-gray-700 text-xs font-bold flex items-center gap-1"
+                    >
+                      <Edit2 size={14} /> Змінити
+                    </button>
+                    {muscleGroups.length > 1 && (
+                      <button
+                        type="button"
+                        onClick={async () => { if (window.confirm(`Видалити групу «${g}»? Усі вправи з цієї групи перейдуть у «Загальна».`)) await deleteGroup(g); }}
+                        className="p-2 bg-red-50 text-red-500 rounded-lg border border-red-100"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MuscleGroupField({ value, onChange }: { value: string; onChange: (val: string) => void; }) {
+  const { muscleGroups, addGroup } = useMuscleGroups();
   const [adding, setAdding] = useState(false);
   const [customVal, setCustomVal] = useState('');
+  const [managerOpen, setManagerOpen] = useState(false);
 
   const handleConfirm = () => {
     const t = customVal.trim();
-    if (t) { onAddGroup(t); onChange(t); }
+    if (t) { addGroup(t); onChange(t); }
     setCustomVal('');
     setAdding(false);
   };
@@ -107,9 +190,14 @@ function MuscleGroupField({ value, onChange, muscleGroups, onAddGroup }: { value
       <div className="flex justify-between items-center mb-1.5">
         <label className="text-[11px] font-bold text-gray-500 uppercase">Група м'язів</label>
         {!adding && (
-          <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded">
-            <Plus size={13} /> Нова група
-          </button>
+          <div className="flex items-center gap-1.5">
+            <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded">
+              <Plus size={13} /> Нова
+            </button>
+            <button type="button" onClick={() => setManagerOpen(true)} className="text-xs font-bold text-gray-600 flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+              <Edit2 size={12} /> Редагувати
+            </button>
+          </div>
         )}
       </div>
       {adding ? (
@@ -132,6 +220,7 @@ function MuscleGroupField({ value, onChange, muscleGroups, onAddGroup }: { value
           ))}
         </div>
       )}
+      {managerOpen && <MuscleGroupsManagerModal onClose={() => setManagerOpen(false)} />}
     </div>
   );
 }
@@ -180,7 +269,7 @@ const initialWorkouts = [
 // 2. МОДАЛКА ВИБОРУ / СТВОРЕННЯ ВПРАВИ
 // ==========================================
 function ExercisePickerModal({ exercises, onSelect, onClose }: { exercises?: Exercise[]; onSelect: (ex: Exercise) => void; onClose: () => void; }) {
-  const { muscleGroups, addGroup } = useMuscleGroups();
+  const { muscleGroups } = useMuscleGroups();
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
@@ -208,7 +297,7 @@ function ExercisePickerModal({ exercises, onSelect, onClose }: { exercises?: Exe
         {creating ? (
           <div className="space-y-3 pt-2 overflow-y-auto flex-1">
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва вправи..." className="w-full p-3 border rounded-lg bg-gray-50 font-medium" autoFocus />
-            <MuscleGroupField value={newMuscle} onChange={setNewMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
+            <MuscleGroupField value={newMuscle} onChange={setNewMuscle} />
             <div className="flex gap-2 pt-2">
               <button onClick={() => setCreating(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Назад</button>
               <button onClick={handleCreate} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Зберегти і додати</button>
@@ -562,13 +651,13 @@ function CalendarView() {
       ? { label: 'Поточний місяць', cls: 'bg-blue-600 text-white' }
       : primaryMonthIndex < realCurrentMonthIndex
       ? { label: 'Минулий місяць', cls: 'bg-slate-600 text-white' }
-      : { label: 'Майбутній місяць', cls: 'bg-indigo-600 text-white' };
+      : { label: 'Майбутній місяць', cls: 'bg-sky-600 text-white' };
 
   return (
     <div className="p-1.5 pb-24">
       <div className="flex justify-between items-center mb-3 px-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v3.5</span>
+          <span className="text-[11px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v3.6</span>
           <div className="flex bg-gray-200 rounded-lg p-0.5">
             <button className={`px-3 py-1 rounded-md text-xs font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
             <button className={`px-3 py-1 rounded-md text-xs font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
@@ -580,7 +669,7 @@ function CalendarView() {
         >Сьогодні</button>
       </div>
 
-      {/* ВКЛАДКА МІСЯЦЬ (КОНТРАСТНЕ РОЗДІЛЕННЯ ПОТОЧНОГО, ПРИЙДЕШНЬОГО ТА МАЙБУТНЬОГО) */}
+      {/* ВКЛАДКА МІСЯЦЬ (ЧІТКА КОНТРАСТНА РІЗНИЦЯ МІЖ МІСЯЦЯМИ НАВІТЬ ПРИ 100% ТРЕНУВАНЬ) */}
       {view === 'month' && (
         <div className="bg-white rounded-xl shadow-sm p-2.5 mx-0.5 touch-none border border-gray-200" onTouchStart={onMonthTouchStart} onTouchEnd={onMonthTouchEnd}>
           <div className="flex items-center gap-1.5 mb-2">
@@ -601,9 +690,9 @@ function CalendarView() {
               {monthStatusBadge.label}
             </span>
             <div className="flex items-center gap-2 text-[9px] font-bold text-gray-500">
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200 border border-slate-400 inline-block" /> Попередній</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-white border-2 border-gray-400 inline-block" /> Обраний</span>
-              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-100 border border-indigo-400 inline-block" /> Прийдешній</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-300 border border-slate-500 inline-block" /> Попередній</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-emerald-200 border border-emerald-600 inline-block" /> Обраний</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-sky-200 border border-sky-600 inline-block" /> Прийдешній</span>
             </div>
           </div>
 
@@ -629,21 +718,29 @@ function CalendarView() {
                   let topBorderClass = '';
 
                   if (isPrevMonth) {
-                    bgClass = 'bg-slate-200/75 border-slate-300';
-                    textClass = 'text-slate-500';
+                    bgClass = 'bg-slate-200 border-slate-400';
+                    textClass = 'text-slate-600';
                   } else if (isNextMonth) {
-                    bgClass = 'bg-indigo-50/90 border-indigo-200';
-                    textClass = 'text-indigo-950';
-                    if (day.getDate() <= 7) topBorderClass = 'border-t-[3px] border-t-indigo-500';
+                    bgClass = 'bg-sky-50 border-sky-300';
+                    textClass = 'text-sky-950';
+                    if (day.getDate() <= 7) topBorderClass = 'border-t-[3px] border-t-sky-600';
                   } else if (isFirst) {
-                    topBorderClass = 'border-t-[3px] border-t-blue-600';
+                    topBorderClass = 'border-t-[3px] border-t-emerald-600';
                   }
 
                   let content = null;
                   if (hists.length > 0) {
                     const wObj = workouts?.find(w => w.id === hists[0].workoutId || w.name === hists[0].workoutName);
-                    bgClass = isPrevMonth ? 'bg-emerald-100/60 border-emerald-300' : isNextMonth ? 'bg-emerald-100/80 border-emerald-400' : 'bg-emerald-100 border-emerald-500 shadow-sm';
-                    textClass = isPrevMonth ? 'text-emerald-800/80 font-bold' : 'text-emerald-950 font-bold';
+                    if (isPrevMonth) {
+                      bgClass = 'bg-slate-200 border-slate-400';
+                      textClass = 'text-slate-700 font-bold';
+                    } else if (isNextMonth) {
+                      bgClass = 'bg-sky-100 border-sky-500 shadow-sm';
+                      textClass = 'text-sky-950 font-bold';
+                    } else {
+                      bgClass = 'bg-emerald-200/80 border-emerald-500 shadow-sm';
+                      textClass = 'text-emerald-950 font-bold';
+                    }
                     content = (
                       <div className="flex flex-col items-center mt-1 leading-tight">
                         <span className="text-[9px] font-extrabold truncate max-w-[44px]">{wObj?.muscle || 'Загальна'}</span>
@@ -653,7 +750,7 @@ function CalendarView() {
                   } else if (plans.length > 0) {
                     const wObj = workouts?.find(w => w.id === plans[0].workoutId);
                     const pName = plans[0].name || wObj?.name || '?';
-                    bgClass = isNextMonth ? 'bg-indigo-100 border-indigo-400 shadow-sm' : 'bg-blue-100 border-blue-500 shadow-sm';
+                    bgClass = isNextMonth ? 'bg-indigo-100 border-indigo-500 shadow-sm' : 'bg-blue-100 border-blue-500 shadow-sm';
                     textClass = 'text-blue-950 font-bold';
                     content = (
                       <div className="flex flex-col items-center mt-1 leading-tight">
@@ -672,7 +769,7 @@ function CalendarView() {
                       className={`min-h-[70px] flex flex-col items-center pt-1 pb-1 rounded-lg text-xs cursor-pointer border ${bgClass} ${textClass} ${topBorderClass} ${isToday ? 'ring-2 ring-blue-600 ring-offset-1' : ''}`}
                     >
                       {isFirst ? (
-                        <span className={`text-[9px] leading-none font-black uppercase px-1.5 py-0.5 rounded ${isNextMonth ? 'bg-indigo-600 text-white' : 'bg-blue-600 text-white'}`}>
+                        <span className={`text-[9px] leading-none font-black uppercase px-1.5 py-0.5 rounded ${isNextMonth ? 'bg-sky-600 text-white' : 'bg-emerald-700 text-white'}`}>
                           1 {monthShort}
                         </span>
                       ) : (
@@ -952,13 +1049,13 @@ function CalendarView() {
 function Workouts() {
   const workouts = useLiveQuery(() => db.workouts.toArray());
   const exercises = useLiveQuery(() => db.exercises.toArray());
-  const { muscleGroups, addGroup } = useMuscleGroups();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [muscle, setMuscle] = useState('Загальна');
   const [items, setItems] = useState<WorkoutItem[]>([]);
   const [showAddEx, setShowAddEx] = useState(false);
+  const [groupsModalOpen, setGroupsModalOpen] = useState(false);
 
   const startEdit = (w: Workout | null) => {
     if (w) { setEditingId(w.id); setName(w.name); setMuscle(w.muscle || 'Загальна'); setItems((w.items || []).map(i => ({ ...i }))); }
@@ -981,7 +1078,7 @@ function Workouts() {
           <button onClick={saveWorkout} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex gap-2"><Save size={20} /> Зберегти</button>
         </div>
         <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-3 font-bold text-lg bg-white" />
-        <MuscleGroupField value={muscle} onChange={setMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
+        <MuscleGroupField value={muscle} onChange={setMuscle} />
         <div className="space-y-3 mb-4">
           {items.map((item, idx) => (
             <div key={idx} className="bg-white p-3 rounded-lg border">
@@ -1009,7 +1106,15 @@ function Workouts() {
 
   return (
     <div className="p-4 pb-24">
-      <div className="flex justify-between items-center mb-5"><h2 className="text-2xl font-bold">Шаблони тренувань</h2><button onClick={() => startEdit(null)} className="bg-blue-600 text-white p-2 rounded-lg"><Plus /></button></div>
+      <div className="flex justify-between items-center mb-5">
+        <h2 className="text-2xl font-bold">Шаблони тренувань</h2>
+        <div className="flex gap-2">
+          <button onClick={() => setGroupsModalOpen(true)} className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 border border-gray-200">
+            <Tag size={15} /> Групи
+          </button>
+          <button onClick={() => startEdit(null)} className="bg-blue-600 text-white p-2 rounded-lg"><Plus /></button>
+        </div>
+      </div>
       <div className="space-y-3">
         {workouts?.slice().sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')).map(w => (
           <div key={w.id} className="bg-white p-4 rounded-xl shadow-sm border">
@@ -1031,6 +1136,7 @@ function Workouts() {
           </div>
         ))}
       </div>
+      {groupsModalOpen && <MuscleGroupsManagerModal onClose={() => setGroupsModalOpen(false)} />}
     </div>
   );
 }
@@ -1040,7 +1146,7 @@ function Workouts() {
 // ==========================================
 function Exercises() {
   const exercises = useLiveQuery(() => db.exercises.toArray());
-  const { muscleGroups, addGroup, renameGroup, deleteGroup } = useMuscleGroups();
+  const { muscleGroups } = useMuscleGroups();
 
   const [search, setSearch] = useState('');
   const [selectedMuscleFilter, setSelectedMuscleFilter] = useState<string>('Усі');
@@ -1048,11 +1154,7 @@ function Exercises() {
   const [editId, setEditId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formMuscle, setFormMuscle] = useState('Загальна');
-
   const [groupsModalOpen, setGroupsModalOpen] = useState(false);
-  const [newGroupName, setNewGroupName] = useState('');
-  const [editingGroup, setEditingGroup] = useState<string | null>(null);
-  const [editingGroupVal, setEditingGroupVal] = useState('');
 
   const openForm = (ex?: Exercise) => {
     if (ex) { setEditId(ex.id); setFormName(ex.name); setFormMuscle(ex.muscle || 'Загальна'); }
@@ -1079,8 +1181,8 @@ function Exercises() {
       <div className="flex justify-between items-center mb-3">
         <h2 className="text-2xl font-bold">Довідник вправ</h2>
         <div className="flex gap-2">
-          <button onClick={() => setGroupsModalOpen(true)} className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 border border-gray-200">
-            <Tag size={15} /> Групи
+          <button onClick={() => setGroupsModalOpen(true)} className="bg-blue-50 text-blue-700 px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 border border-blue-200">
+            <Tag size={15} /> Групи м'язів
           </button>
           <button onClick={() => openForm()} className="bg-blue-600 text-white p-2 rounded-lg"><Plus /></button>
         </div>
@@ -1128,7 +1230,7 @@ function Exercises() {
               <button onClick={() => setModalOpen(false)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
             </div>
             <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Назва вправи" className="w-full p-3 border rounded-lg mb-4 font-medium bg-gray-50" />
-            <MuscleGroupField value={formMuscle} onChange={setFormMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
+            <MuscleGroupField value={formMuscle} onChange={setFormMuscle} />
             <div className="flex gap-3 pt-2">
               <button onClick={() => setModalOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold">Скасувати</button>
               <button onClick={saveEx} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Зберегти</button>
@@ -1137,43 +1239,7 @@ function Exercises() {
         </div>
       )}
 
-      {groupsModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[115] p-2 pb-20">
-          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-2xl max-h-[85vh] flex flex-col">
-            <div className="flex justify-between items-center mb-3 border-b pb-2 shrink-0">
-              <h3 className="font-bold text-lg">Групи м'язів</h3>
-              <button onClick={() => { setGroupsModalOpen(false); setEditingGroup(null); }} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
-            </div>
-            <div className="flex gap-2 mb-3 shrink-0">
-              <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Нова група м'язів..." className="flex-1 p-2.5 border rounded-lg bg-gray-50 text-sm font-medium" />
-              <button onClick={() => { if (newGroupName.trim()) { addGroup(newGroupName.trim()); setNewGroupName(''); } }} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-sm">Додати</button>
-            </div>
-            <div className="flex-1 overflow-y-auto space-y-2 pb-2">
-              {muscleGroups.map(g => (
-                <div key={g} className="p-2.5 bg-gray-50 border rounded-xl flex items-center justify-between gap-2">
-                  {editingGroup === g ? (
-                    <>
-                      <input value={editingGroupVal} onChange={e => setEditingGroupVal(e.target.value)} className="flex-1 p-2 border border-blue-400 rounded-lg bg-white text-sm font-bold" autoFocus />
-                      <button onClick={async () => { await renameGroup(g, editingGroupVal); setEditingGroup(null); }} className="p-2 bg-blue-600 text-white rounded-lg"><Save size={16} /></button>
-                      <button onClick={() => setEditingGroup(null)} className="p-2 bg-gray-200 text-gray-600 rounded-lg"><X size={16} /></button>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-bold text-sm text-gray-800 pl-1">{g}</span>
-                      <div className="flex gap-1.5">
-                        <button onClick={() => { setEditingGroup(g); setEditingGroupVal(g); }} className="p-2 bg-white border rounded-lg text-gray-600"><Edit2 size={15} /></button>
-                        {muscleGroups.length > 1 && (
-                          <button onClick={async () => { if (window.confirm(`Видалити групу «${g}»? Вправи перейдуть в іншу групу.`)) await deleteGroup(g); }} className="p-2 bg-red-50 text-red-500 rounded-lg"><Trash2 size={15} /></button>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+      {groupsModalOpen && <MuscleGroupsManagerModal onClose={() => setGroupsModalOpen(false)} />}
     </div>
   );
 }
