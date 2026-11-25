@@ -1391,11 +1391,94 @@ function Timers() {
 }
 
 // ==========================================
-// 8. ДАНІ ТА ЕКСПОРТ ДЛЯ АНАЛІЗУ (CSV + JSON)
+// 8. ДАНІ ТА ЕКСПОРТ ДЛЯ АНАЛІЗУ (CSV + JSON) + ІНСТРУКЦІЯ
 // ==========================================
+function UserGuideModal({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-[120] p-2 pb-16 sm:pb-2">
+      <div className="bg-white w-full max-w-md rounded-2xl p-5 max-h-[84vh] overflow-y-auto shadow-2xl">
+        <div className="flex justify-between items-center mb-4 border-b pb-3 sticky top-0 bg-white z-10">
+          <h3 className="font-bold text-lg text-gray-900">📖 Інструкція користувача</h3>
+          <button onClick={onClose} className="text-gray-400 bg-gray-100 rounded-full p-1.5">
+            <X size={20} />
+          </button>
+        </div>
+
+        <div className="space-y-4 text-sm text-gray-700 leading-relaxed">
+          <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+            <div className="font-bold text-blue-900 mb-1">1. Встановлення на телефон (PWA)</div>
+            <p className="mb-1">
+              <b>iPhone (Safari):</b> відкрийте посилання у Safari → натисніть «Поділитися» (квадрат зі стрілкою вгору) → <b>«На початковий екран»</b> → «Додати».
+            </p>
+            <p className="mb-1">
+              <b>Android (Chrome):</b> меню <b>⋮</b> → <b>«Додати на головний екран»</b>.
+            </p>
+            <p className="text-xs text-blue-800 mt-1">
+              ⚠️ Після встановлення відкривайте щоденник лише з іконки на головному екрані: пам'ять Safari та пам'ять іконки розділені.
+            </p>
+          </div>
+
+          <div>
+            <div className="font-bold text-gray-900 mb-1">2. Вправи, Шаблони та Групи м'язів</div>
+            <p>
+              <b>Вправи:</b> довідник рухів із пошуком та фільтром. Натисніть <b>+</b>, щоб створити свою вправу, або <b>«Групи м'язів»</b>, щоб додавати, перейменовувати чи видаляти категорії.
+            </p>
+            <p className="mt-1">
+              <b>Тренування:</b> конструктор програм. Можна додати одну вправу кілька разів (окремо під кожен підхід), вказати вагу, еспандер, повтори (<code>10-5-10</code>, <code>5x8</code>) і змінити порядок стрілками.
+            </p>
+          </div>
+
+          <div>
+            <div className="font-bold text-gray-900 mb-1">3. Календар («План»)</div>
+            <p>
+              <b>Таблиця (7 днів):</b> планування на тиждень, гортання дат свайпом вліво/вправо та картка обраного дня знизу зі швидким стартом.
+            </p>
+            <p className="mt-1">
+              <b>Місяць:</b> огляд історії з кольоровим розділенням місяців. Натисніть на день, щоб запустити таймер, переглянути примітку або відмітити тренування виконаним без таймера (<code>--:--</code>).
+            </p>
+          </div>
+
+          <div>
+            <div className="font-bold text-gray-900 mb-1">4. Таймери</div>
+            <p>
+              <b>Фактичний час:</b> рахує розминку, основну частину та заминку (працює навіть при вимкненому екрані) + має великий таймер відпочинку між підходами зі звуком за 5 сек до кінця.
+            </p>
+            <p className="mt-1">
+              <b>Табата:</b> інтервальний таймер (робота / відпочинок / цикли) зі звуковими сигналами за 3-2-1 секунду.
+            </p>
+          </div>
+
+          <div className="bg-amber-50 p-3 rounded-xl border border-amber-200">
+            <div className="font-bold text-amber-900 mb-1">5. Резервне копіювання (Бекап)</div>
+            <p className="mb-1.5">
+              Усі дані зберігаються <b>тільки в пам'яті вашого телефону</b> без серверів і реєстрації. Якщо очистити кеш браузера або видалити іконку — історія зітреться.
+            </p>
+            <ul className="list-disc pl-4 space-y-1 text-xs text-amber-950">
+              <li>
+                <b>Зберегти копію:</b> натисніть <b>«Вивантажити бекап»</b> у цьому розділі. Збережеться файл <code>w_jornal_backup_РРРР-ММ-ДД.json</code> (на iPhone підтвердіть «Завантажити» і шукайте в додатку «Файли» → «Завантаження»).
+              </li>
+              <li>
+                <b>Відновити базу:</b> натисніть <b>«Відновлення з файлу JSON»</b> та оберіть збережений файл. Увага: він повністю перезапише поточні дані на телефоні.
+              </li>
+              <li>
+                <b>Аналіз прогресу:</b> блок <b>CSV</b> вивантажує таблицю для Excel або копіює текстовий звіт для аналізу тренувань у чаті.
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <button onClick={onClose} className="w-full mt-5 bg-blue-600 text-white py-3 rounded-xl font-bold shadow-sm">
+          Зрозуміло
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function DataSync() {
   const [csvPeriod, setCsvPeriod] = useState<'all' | '30' | '7'>('all');
   const [copyStatus, setCopyStatus] = useState('');
+  const [showGuide, setShowGuide] = useState(false);
 
   const parseBreakdown = (noteText: string) => {
     const start = noteText.indexOf('[Розминка:');
@@ -1432,7 +1515,20 @@ function DataSync() {
       const items = h.items && h.items.length > 0 ? h.items : [{ exerciseId: '', weight: '', band: '', reps: '', note: '' }];
       for (const item of items) {
         const ex = exercises.find(e => e.id === item.exerciseId);
-        rows.push([h.date, h.workoutName, w?.muscle || 'Загальна', formatDuration(h.duration), warmup, main, cooldown, item.exNameSnapshot || ex?.name || '', item.weight, item.band, item.reps, cleanNote].map(esc).join(','));
+        rows.push([
+          h.date,
+          h.workoutName,
+          w?.muscle || 'Загальна',
+          formatDuration(h.duration),
+          warmup,
+          main,
+          cooldown,
+          item.exNameSnapshot || ex?.name || '',
+          item.weight,
+          item.band,
+          item.reps,
+          cleanNote
+        ].map(esc).join(','));
       }
     }
     return rows.join(nl);
@@ -1448,12 +1544,23 @@ function DataSync() {
 
   const copyCSV = async () => {
     const csv = await buildAnalysisCSV();
-    try { await navigator.clipboard.writeText(csv); setCopyStatus('Скопійовано! Можна вставляти в чат.'); setTimeout(() => setCopyStatus(''), 3000); }
-    catch { alert('Не вдалося скопіювати автоматично. Скористайтесь кнопкою «Завантажити CSV».'); }
+    try {
+      await navigator.clipboard.writeText(csv);
+      setCopyStatus('Скопійовано! Можна вставляти в чат.');
+      setTimeout(() => setCopyStatus(''), 3000);
+    } catch {
+      alert('Не вдалося скопіювати автоматично. Скористайтесь кнопкою «Завантажити CSV».');
+    }
   };
 
   const exportData = async () => {
-    const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray(), muscleGroups: loadStoredMuscleGroups() };
+    const data = {
+      exercises: await db.exercises.toArray(),
+      workouts: await db.workouts.toArray(),
+      scheduled: await db.scheduled.toArray(),
+      history: await db.history.toArray(),
+      muscleGroups: loadStoredMuscleGroups()
+    };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
     a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`;
@@ -1467,18 +1574,27 @@ function DataSync() {
     reader.onload = async ev => {
       try {
         const data = JSON.parse(ev.target?.result as string);
-        if (!Array.isArray(data.exercises) || !Array.isArray(data.workouts)) { alert('Невірний формат файлу бекапу.'); return; }
+        if (!Array.isArray(data.exercises) || !Array.isArray(data.workouts)) {
+          alert('Невірний формат файлу бекапу.');
+          return;
+        }
         if (!window.confirm('Замінити всі поточні дані на дані з файлу?')) return;
         if (Array.isArray(data.muscleGroups)) saveStoredMuscleGroups(data.muscleGroups);
         await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
-          await db.exercises.clear(); await db.workouts.clear(); await db.scheduled.clear(); await db.history.clear();
-          await db.exercises.bulkAdd(data.exercises); await db.workouts.bulkAdd(data.workouts);
+          await db.exercises.clear();
+          await db.workouts.clear();
+          await db.scheduled.clear();
+          await db.history.clear();
+          await db.exercises.bulkAdd(data.exercises);
+          await db.workouts.bulkAdd(data.workouts);
           if (Array.isArray(data.scheduled)) await db.scheduled.bulkAdd(data.scheduled);
           if (Array.isArray(data.history)) await db.history.bulkAdd(data.history);
         });
         alert('Дані успішно відновлено!');
         window.location.reload();
-      } catch { alert('Помилка читання файлу'); }
+      } catch {
+        alert('Помилка читання файлу');
+      }
     };
     reader.readAsText(file);
   };
@@ -1493,7 +1609,16 @@ function DataSync() {
 
   return (
     <div className="p-4 pb-24">
-      <h2 className="text-2xl font-bold mb-5">Дані та Бекап</h2>
+      <div className="flex justify-between items-center mb-5">
+        <h2 className="text-2xl font-bold">Дані та Бекап</h2>
+        <button
+          onClick={() => setShowGuide(true)}
+          className="bg-blue-50 text-blue-700 border border-blue-200 px-3 py-1.5 rounded-xl text-sm font-bold flex items-center gap-1.5 active:scale-95 transition-transform"
+        >
+          📖 Інструкція
+        </button>
+      </div>
+
       <div className="space-y-4">
         <div className="bg-white p-4 rounded-xl border border-blue-200 shadow-sm">
           <h3 className="font-bold text-blue-800 mb-2">Аналіз тренувань (CSV)</h3>
@@ -1503,28 +1628,36 @@ function DataSync() {
             <option value="7">За останні 7 днів</option>
           </select>
           <div className="flex gap-2">
-            <button onClick={downloadCSV} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5"><Download size={16} /> Завантажити CSV</button>
-            <button onClick={copyCSV} className="flex-1 bg-blue-50 text-blue-700 py-3 rounded-lg font-bold text-sm border border-blue-200 flex items-center justify-center gap-1.5"><Copy size={16} /> Скопіювати звіт</button>
+            <button onClick={downloadCSV} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold text-sm flex items-center justify-center gap-1.5">
+              <Download size={16} /> Завантажити CSV
+            </button>
+            <button onClick={copyCSV} className="flex-1 bg-blue-50 text-blue-700 py-3 rounded-lg font-bold text-sm border border-blue-200 flex items-center justify-center gap-1.5">
+              <Copy size={16} /> Скопіювати звіт
+            </button>
           </div>
           {copyStatus && <div className="text-xs text-green-600 font-bold mt-2 text-center">{copyStatus}</div>}
         </div>
+
         <div className="bg-white p-4 rounded-xl border shadow-sm">
           <h3 className="font-bold mb-2">Експорт (Повний бекап JSON)</h3>
           <button onClick={exportData} className="w-full bg-gray-800 text-white py-3 rounded-lg font-bold">Вивантажити бекап</button>
         </div>
+
         <div className="bg-white p-4 rounded-xl border shadow-sm">
           <h3 className="font-bold mb-2">Відновлення з файлу JSON</h3>
           <input type="file" accept=".json" onChange={importData} className="w-full text-sm" />
         </div>
+
         <div className="bg-red-50 p-4 rounded-xl border border-red-200 mt-6">
           <h3 className="font-bold text-red-700 mb-2">Небезпечна зона</h3>
           <button onClick={clearPhone} className="w-full bg-red-600 text-white py-3 rounded-lg font-bold">Очистити телефон</button>
         </div>
       </div>
+
+      {showGuide && <UserGuideModal onClose={() => setShowGuide(false)} />}
     </div>
   );
 }
-
 // ==========================================
 // 9. НАВІГАЦІЯ ТА ІНІЦІАЛІЗАЦІЯ
 // ==========================================
