@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, NavLink, useNavigate, useLocation } from 'react-router-dom';
 import {
   Dumbbell, Timer as TimerIcon, Calendar as CalendarIcon, Activity, Plus, Settings,
   Trash2, Edit2, Save, X, ChevronLeft, ChevronRight, Play, CheckCircle2,
-  ChevronUp, ChevronDown, Search, Copy, Download
+  ChevronUp, ChevronDown, Search, Copy, Download, Tag
 } from 'lucide-react';
 import Dexie, { Table } from 'dexie';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -24,17 +24,118 @@ export class WorkoutJournalDB extends Dexie {
   history!: Table<History, string>;
   constructor() {
     super('WJornalDB_v7');
-    this.version(2).stores({
-      exercises: 'id, name, category, muscle',
-      workouts: 'id, name, muscle',
-      scheduled: 'id, date, workoutId',
-      history: 'id, date, workoutId'
-    });
+    this.version(2).stores({ exercises: 'id, name, category, muscle', workouts: 'id, name, muscle', scheduled: 'id, date, workoutId', history: 'id, date, workoutId' });
   }
 }
 export const db = new WorkoutJournalDB();
 
-const MUSCLE_GROUPS = ['Груди', 'Ноги', 'Спина', 'Плечі', 'Руки', 'Загальна'];
+const DEFAULT_MUSCLE_GROUPS = ['Груди', 'Ноги', 'Спина', 'Плечі', 'Руки', 'Загальна'];
+const MUSCLE_STORAGE_KEY = 'w_jornal_muscle_groups_v1';
+
+const loadStoredMuscleGroups = (): string[] => {
+  try {
+    const raw = localStorage.getItem(MUSCLE_STORAGE_KEY);
+    if (raw) { const p = JSON.parse(raw); if (Array.isArray(p) && p.length > 0) return p; }
+  } catch {}
+  return [...DEFAULT_MUSCLE_GROUPS];
+};
+
+const saveStoredMuscleGroups = (groups: string[]) => {
+  const unique = Array.from(new Set(groups.map(g => g.trim()).filter(Boolean)));
+  localStorage.setItem(MUSCLE_STORAGE_KEY, JSON.stringify(unique));
+  window.dispatchEvent(new Event('muscle-groups-updated'));
+  return unique;
+};
+
+function useMuscleGroups() {
+  const [groups, setGroups] = useState<string[]>(loadStoredMuscleGroups);
+  const exercises = useLiveQuery(() => db.exercises.toArray());
+  const workouts = useLiveQuery(() => db.workouts.toArray());
+
+  useEffect(() => {
+    const sync = () => setGroups(loadStoredMuscleGroups());
+    window.addEventListener('muscle-groups-updated', sync);
+    window.addEventListener('storage', sync);
+    return () => { window.removeEventListener('muscle-groups-updated', sync); window.removeEventListener('storage', sync); };
+  }, []);
+
+  const allGroups = useMemo(() => {
+    const set = new Set<string>(groups);
+    exercises?.forEach(e => { if (e.muscle?.trim()) set.add(e.muscle.trim()); });
+    workouts?.forEach(w => { if (w.muscle?.trim()) set.add(w.muscle.trim()); });
+    return Array.from(set);
+  }, [groups, exercises, workouts]);
+
+  const addGroup = (name: string) => {
+    const t = name.trim();
+    if (!t) return;
+    setGroups(saveStoredMuscleGroups([...allGroups, t]));
+  };
+
+  const renameGroup = async (oldName: string, newName: string) => {
+    const t = newName.trim();
+    if (!t || t === oldName) return;
+    setGroups(saveStoredMuscleGroups(allGroups.map(g => (g === oldName ? t : g))));
+    for (const ex of (await db.exercises.toArray()).filter(e => e.muscle === oldName)) await db.exercises.update(ex.id, { muscle: t });
+    for (const w of (await db.workouts.toArray()).filter(w => w.muscle === oldName)) await db.workouts.update(w.id, { muscle: t });
+  };
+
+  const deleteGroup = async (name: string) => {
+    const rem = allGroups.filter(g => g !== name);
+    const fallback = rem[0] || 'Загальна';
+    setGroups(saveStoredMuscleGroups(rem.length > 0 ? rem : ['Загальна']));
+    for (const ex of (await db.exercises.toArray()).filter(e => e.muscle === name)) await db.exercises.update(ex.id, { muscle: fallback });
+    for (const w of (await db.workouts.toArray()).filter(w => w.muscle === name)) await db.workouts.update(w.id, { muscle: fallback });
+  };
+
+  return { muscleGroups: allGroups, addGroup, renameGroup, deleteGroup };
+}
+
+function MuscleGroupField({ value, onChange, muscleGroups, onAddGroup }: { value: string; onChange: (val: string) => void; muscleGroups: string[]; onAddGroup: (name: string) => void; }) {
+  const [adding, setAdding] = useState(false);
+  const [customVal, setCustomVal] = useState('');
+
+  const handleConfirm = () => {
+    const t = customVal.trim();
+    if (t) { onAddGroup(t); onChange(t); }
+    setCustomVal('');
+    setAdding(false);
+  };
+
+  return (
+    <div className="mb-4">
+      <div className="flex justify-between items-center mb-1.5">
+        <label className="text-[11px] font-bold text-gray-500 uppercase">Група м'язів</label>
+        {!adding && (
+          <button type="button" onClick={() => setAdding(true)} className="text-xs font-bold text-blue-600 flex items-center gap-1 bg-blue-50 px-2 py-0.5 rounded">
+            <Plus size={13} /> Нова група
+          </button>
+        )}
+      </div>
+      {adding ? (
+        <div className="flex gap-1.5">
+          <input value={customVal} onChange={e => setCustomVal(e.target.value)} placeholder="Назва (напр. Прес, Литкові)..." className="flex-1 p-2.5 border border-blue-400 rounded-lg bg-white text-sm font-medium outline-none" autoFocus />
+          <button type="button" onClick={handleConfirm} className="px-3.5 bg-blue-600 text-white rounded-lg font-bold text-xs">ОК</button>
+          <button type="button" onClick={() => { setAdding(false); setCustomVal(''); }} className="px-2.5 bg-gray-100 text-gray-600 rounded-lg"><X size={16} /></button>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-1.5">
+          {muscleGroups.map(m => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => onChange(m)}
+              className={`px-3 py-2 rounded-lg text-xs font-bold border transition-colors ${value === m ? 'bg-blue-600 text-white border-blue-600 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200 active:bg-gray-200'}`}
+            >
+              {m}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 const generateId = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) + Date.now().toString(36));
 const formatDuration = (secs: number) => (!secs || secs <= 0 ? '--:--' : `${Math.floor(secs / 60)}:${Math.floor(secs % 60).toString().padStart(2, '0')}`);
 const getLocalDateString = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -79,10 +180,11 @@ const initialWorkouts = [
 // 2. МОДАЛКА ВИБОРУ / СТВОРЕННЯ ВПРАВИ
 // ==========================================
 function ExercisePickerModal({ exercises, onSelect, onClose }: { exercises?: Exercise[]; onSelect: (ex: Exercise) => void; onClose: () => void; }) {
+  const { muscleGroups, addGroup } = useMuscleGroups();
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
-  const [newMuscle, setNewMuscle] = useState('Загальна');
+  const [newMuscle, setNewMuscle] = useState(muscleGroups[0] || 'Загальна');
 
   const filtered = (exercises || [])
     .filter(ex => ex.name.toLowerCase().includes(search.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(search.toLowerCase())))
@@ -104,11 +206,9 @@ function ExercisePickerModal({ exercises, onSelect, onClose }: { exercises?: Exe
           <button onClick={onClose} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
         </div>
         {creating ? (
-          <div className="space-y-3 pt-2">
+          <div className="space-y-3 pt-2 overflow-y-auto flex-1">
             <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Назва вправи..." className="w-full p-3 border rounded-lg bg-gray-50 font-medium" autoFocus />
-            <select value={newMuscle} onChange={e => setNewMuscle(e.target.value)} className="w-full p-3 border rounded-lg bg-white font-medium">
-              {MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
+            <MuscleGroupField value={newMuscle} onChange={setNewMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
             <div className="flex gap-2 pt-2">
               <button onClick={() => setCreating(false)} className="flex-1 bg-gray-100 text-gray-700 py-3 rounded-lg font-bold">Назад</button>
               <button onClick={handleCreate} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Зберегти і додати</button>
@@ -352,18 +452,19 @@ export function TimerProvider({ children }: { children: React.ReactNode }) {
 }
 
 // ==========================================
-// 4. КАЛЕНДАР (ТАБЛИЦЯ 7 ДНІВ + КАРТКА ДНЯ + МІСЯЦЬ)
+// 4. КАЛЕНДАР (ТАБЛИЦЯ 7 ДНІВ + КАРТКА ДНЯ + КОНТРАСТНИЙ МІСЯЦЬ)
 // ==========================================
 function CalendarView() {
   const navigate = useNavigate();
-  const todayStr = getLocalDateString(new Date());
+  const nowObj = new Date();
+  const todayStr = getLocalDateString(nowObj);
+  const currentRealMonth = nowObj.getMonth();
+  const currentRealYear = nowObj.getFullYear();
+
   const [view, setView] = useState<'matrix' | 'month'>('matrix');
   const [dayOffset, setDayOffset] = useState(0);
   const [selectedDate, setSelectedDate] = useState<string>(todayStr);
-  const [monthStartMonday, setMonthStartMonday] = useState<Date>(() => {
-    const now = new Date();
-    return getMondayOfWeek(new Date(now.getFullYear(), now.getMonth(), 1));
-  });
+  const [monthStartMonday, setMonthStartMonday] = useState<Date>(() => getMondayOfWeek(new Date(currentRealYear, currentRealMonth, 1)));
 
   const scheduled = useLiveQuery(() => db.scheduled.toArray());
   const historyData = useLiveQuery(() => db.history.toArray());
@@ -454,11 +555,20 @@ function CalendarView() {
     return `${selectedDate === todayStr ? 'Сьогодні • ' : ''}${String(d).padStart(2, '0')}.${String(m).padStart(2, '0')} (${wd})`;
   })();
 
+  const primaryMonthIndex = primaryYear * 12 + primaryMonth;
+  const realCurrentMonthIndex = currentRealYear * 12 + currentRealMonth;
+  const monthStatusBadge =
+    primaryMonthIndex === realCurrentMonthIndex
+      ? { label: 'Поточний місяць', cls: 'bg-blue-600 text-white' }
+      : primaryMonthIndex < realCurrentMonthIndex
+      ? { label: 'Минулий місяць', cls: 'bg-slate-600 text-white' }
+      : { label: 'Майбутній місяць', cls: 'bg-indigo-600 text-white' };
+
   return (
     <div className="p-1.5 pb-24">
       <div className="flex justify-between items-center mb-3 px-1">
         <div className="flex items-center gap-1.5">
-          <span className="text-[11px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v3.4</span>
+          <span className="text-[11px] font-bold text-gray-400 bg-gray-100 px-2 py-1 rounded">v3.5</span>
           <div className="flex bg-gray-200 rounded-lg p-0.5">
             <button className={`px-3 py-1 rounded-md text-xs font-bold ${view === 'matrix' ? 'bg-white shadow' : ''}`} onClick={() => setView('matrix')}>Таблиця</button>
             <button className={`px-3 py-1 rounded-md text-xs font-bold ${view === 'month' ? 'bg-white shadow' : ''}`} onClick={() => setView('month')}>Місяць</button>
@@ -470,23 +580,34 @@ function CalendarView() {
         >Сьогодні</button>
       </div>
 
-      {/* ВКЛАДКА МІСЯЦЬ (РІВНО 6 ТИЖНІВ) */}
+      {/* ВКЛАДКА МІСЯЦЬ (КОНТРАСТНЕ РОЗДІЛЕННЯ ПОТОЧНОГО, ПРИЙДЕШНЬОГО ТА МАЙБУТНЬОГО) */}
       {view === 'month' && (
-        <div className="bg-white rounded-xl shadow-sm p-2.5 mx-0.5 touch-none" onTouchStart={onMonthTouchStart} onTouchEnd={onMonthTouchEnd}>
-          <div className="flex items-center gap-1.5 mb-2.5">
-            <select value={primaryMonth} onChange={e => setMonthStartMonday(getMondayOfWeek(new Date(primaryYear, Number(e.target.value), 1)))} className="p-2 border rounded-lg font-bold bg-gray-50 flex-1 text-sm capitalize">
+        <div className="bg-white rounded-xl shadow-sm p-2.5 mx-0.5 touch-none border border-gray-200" onTouchStart={onMonthTouchStart} onTouchEnd={onMonthTouchEnd}>
+          <div className="flex items-center gap-1.5 mb-2">
+            <select value={primaryMonth} onChange={e => setMonthStartMonday(getMondayOfWeek(new Date(primaryYear, Number(e.target.value), 1)))} className="p-2 border border-gray-300 rounded-lg font-bold bg-gray-50 flex-1 text-sm capitalize">
               {Array.from({ length: 12 }).map((_, i) => <option key={i} value={i}>{new Date(2000, i).toLocaleDateString('uk-UA', { month: 'long' })}</option>)}
             </select>
-            <select value={primaryYear} onChange={e => setMonthStartMonday(getMondayOfWeek(new Date(Number(e.target.value), primaryMonth, 1)))} className="p-2 border rounded-lg font-bold bg-gray-50 w-20 text-sm">
+            <select value={primaryYear} onChange={e => setMonthStartMonday(getMondayOfWeek(new Date(Number(e.target.value), primaryMonth, 1)))} className="p-2 border border-gray-300 rounded-lg font-bold bg-gray-50 w-20 text-sm">
               {[2024, 2025, 2026, 2027, 2028].map(y => <option key={y} value={y}>{y}</option>)}
             </select>
             <div className="flex flex-col gap-0.5">
-              <button onClick={() => shiftMonthWeeks(-1)} className="px-2 py-0.5 bg-gray-100 rounded text-gray-600"><ChevronUp size={14} /></button>
-              <button onClick={() => shiftMonthWeeks(1)} className="px-2 py-0.5 bg-gray-100 rounded text-gray-600"><ChevronDown size={14} /></button>
+              <button onClick={() => shiftMonthWeeks(-1)} className="px-2 py-0.5 bg-gray-100 rounded text-gray-700"><ChevronUp size={14} /></button>
+              <button onClick={() => shiftMonthWeeks(1)} className="px-2 py-0.5 bg-gray-100 rounded text-gray-700"><ChevronDown size={14} /></button>
             </div>
           </div>
 
-          <div className="grid grid-cols-7 gap-1 text-center text-[11px] mb-1.5 text-gray-500 font-bold border-b pb-1">
+          <div className="flex items-center justify-between mb-2 px-0.5">
+            <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${monthStatusBadge.cls}`}>
+              {monthStatusBadge.label}
+            </span>
+            <div className="flex items-center gap-2 text-[9px] font-bold text-gray-500">
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-slate-200 border border-slate-400 inline-block" /> Попередній</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-white border-2 border-gray-400 inline-block" /> Обраний</span>
+              <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-sm bg-indigo-100 border border-indigo-400 inline-block" /> Прийдешній</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 text-center text-[11px] mb-1.5 text-gray-600 font-bold border-b pb-1">
             <div>Пн</div><div>Вт</div><div>Ср</div><div>Чт</div><div>Пт</div><div>Сб</div><div>Нд</div>
           </div>
 
@@ -497,42 +618,68 @@ function CalendarView() {
                   const dStr = getLocalDateString(day);
                   const plans = scheduled?.filter(s => s.date === dStr) || [];
                   const hists = historyData?.filter(h => h.date === dStr) || [];
-                  const isOtherMonth = day.getMonth() !== primaryMonth;
+                  const cellMonthIndex = day.getFullYear() * 12 + day.getMonth();
+                  const isPrevMonth = cellMonthIndex < primaryMonthIndex;
+                  const isNextMonth = cellMonthIndex > primaryMonthIndex;
                   const isFirst = day.getDate() === 1;
+                  const isToday = dStr === todayStr;
 
-                  let bgClass = isOtherMonth ? 'bg-gray-100/80 border-gray-200/70 opacity-75' : 'bg-white border-gray-200';
-                  let textClass = isOtherMonth ? 'text-gray-500' : 'text-gray-800';
+                  let bgClass = 'bg-white border-gray-300 shadow-[0_1px_2px_rgba(0,0,0,0.04)]';
+                  let textClass = 'text-gray-900';
+                  let topBorderClass = '';
+
+                  if (isPrevMonth) {
+                    bgClass = 'bg-slate-200/75 border-slate-300';
+                    textClass = 'text-slate-500';
+                  } else if (isNextMonth) {
+                    bgClass = 'bg-indigo-50/90 border-indigo-200';
+                    textClass = 'text-indigo-950';
+                    if (day.getDate() <= 7) topBorderClass = 'border-t-[3px] border-t-indigo-500';
+                  } else if (isFirst) {
+                    topBorderClass = 'border-t-[3px] border-t-blue-600';
+                  }
+
                   let content = null;
-
                   if (hists.length > 0) {
                     const wObj = workouts?.find(w => w.id === hists[0].workoutId || w.name === hists[0].workoutName);
-                    bgClass = isOtherMonth ? 'bg-green-50 border-green-200 opacity-85' : 'bg-green-100 border-green-300 shadow-sm';
-                    textClass = 'text-green-800 font-bold';
+                    bgClass = isPrevMonth ? 'bg-emerald-100/60 border-emerald-300' : isNextMonth ? 'bg-emerald-100/80 border-emerald-400' : 'bg-emerald-100 border-emerald-500 shadow-sm';
+                    textClass = isPrevMonth ? 'text-emerald-800/80 font-bold' : 'text-emerald-950 font-bold';
                     content = (
                       <div className="flex flex-col items-center mt-1 leading-tight">
-                        <span className="text-[9px] font-bold truncate max-w-[44px]">{wObj?.muscle || 'Загальна'}</span>
-                        <span className="text-[9px] font-mono opacity-85 mt-0.5">{formatDuration(hists[0].duration)}</span>
+                        <span className="text-[9px] font-extrabold truncate max-w-[44px]">{wObj?.muscle || 'Загальна'}</span>
+                        <span className="text-[9px] font-mono font-bold mt-0.5">{formatDuration(hists[0].duration)}</span>
                       </div>
                     );
                   } else if (plans.length > 0) {
                     const wObj = workouts?.find(w => w.id === plans[0].workoutId);
                     const pName = plans[0].name || wObj?.name || '?';
-                    bgClass = 'bg-blue-50 border-blue-300 shadow-sm';
-                    textClass = 'text-blue-900 font-bold';
+                    bgClass = isNextMonth ? 'bg-indigo-100 border-indigo-400 shadow-sm' : 'bg-blue-100 border-blue-500 shadow-sm';
+                    textClass = 'text-blue-950 font-bold';
                     content = (
                       <div className="flex flex-col items-center mt-1 leading-tight">
-                        <span className="text-sm text-blue-600 font-black leading-none">{pName.charAt(0).toUpperCase()}</span>
-                        <span className="text-[8px] font-mono text-blue-400">план</span>
+                        <span className="text-sm text-blue-700 font-black leading-none">{pName.charAt(0).toUpperCase()}</span>
+                        <span className="text-[8px] font-mono font-bold text-blue-600">план</span>
                       </div>
                     );
                   }
 
+                  const monthShort = day.toLocaleDateString('uk-UA', { month: 'short' }).replace('.', '');
+
                   return (
-                    <div key={dStr} onClick={() => setDayDetailsDate(dStr)} className={`min-h-[68px] flex flex-col items-center pt-1 pb-1 rounded-lg text-xs cursor-pointer border ${bgClass} ${textClass} ${dStr === todayStr ? 'ring-2 ring-blue-500' : ''} ${isFirst ? 'border-t-2 border-t-blue-500' : ''}`}>
-                      <span className={`text-[10px] leading-none font-bold ${isFirst ? 'text-blue-600' : ''}`}>
-                        {day.getDate()}
-                        {isFirst && <span className="text-[8px] uppercase ml-0.5">{day.toLocaleDateString('uk-UA', { month: 'short' }).replace('.', '')}</span>}
-                      </span>
+                    <div
+                      key={dStr}
+                      onClick={() => setDayDetailsDate(dStr)}
+                      className={`min-h-[70px] flex flex-col items-center pt-1 pb-1 rounded-lg text-xs cursor-pointer border ${bgClass} ${textClass} ${topBorderClass} ${isToday ? 'ring-2 ring-blue-600 ring-offset-1' : ''}`}
+                    >
+                      {isFirst ? (
+                        <span className={`text-[9px] leading-none font-black uppercase px-1.5 py-0.5 rounded ${isNextMonth ? 'bg-indigo-600 text-white' : 'bg-blue-600 text-white'}`}>
+                          1 {monthShort}
+                        </span>
+                      ) : (
+                        <span className={`text-[11px] leading-none font-extrabold ${isToday ? 'bg-blue-600 text-white px-1.5 py-0.5 rounded-full' : ''}`}>
+                          {day.getDate()}
+                        </span>
+                      )}
                       {content}
                     </div>
                   );
@@ -805,6 +952,8 @@ function CalendarView() {
 function Workouts() {
   const workouts = useLiveQuery(() => db.workouts.toArray());
   const exercises = useLiveQuery(() => db.exercises.toArray());
+  const { muscleGroups, addGroup } = useMuscleGroups();
+
   const [editingId, setEditingId] = useState<string | null>(null);
   const [name, setName] = useState('');
   const [muscle, setMuscle] = useState('Загальна');
@@ -831,10 +980,8 @@ function Workouts() {
           <button onClick={() => setEditingId(null)} className="text-gray-500 font-bold">Скасувати</button>
           <button onClick={saveWorkout} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold flex gap-2"><Save size={20} /> Зберегти</button>
         </div>
-        <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-3 font-bold text-lg" />
-        <select value={muscle} onChange={e => setMuscle(e.target.value)} className="w-full p-3 border rounded-lg mb-4 bg-white font-medium">
-          {MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}
-        </select>
+        <input value={name} onChange={e => setName(e.target.value)} placeholder="Назва тренування" className="w-full p-3 border rounded-lg mb-3 font-bold text-lg bg-white" />
+        <MuscleGroupField value={muscle} onChange={setMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
         <div className="space-y-3 mb-4">
           {items.map((item, idx) => (
             <div key={idx} className="bg-white p-3 rounded-lg border">
@@ -889,19 +1036,27 @@ function Workouts() {
 }
 
 // ==========================================
-// 6. ДОВІДНИК ВПРАВ
+// 6. ДОВІДНИК ВПРАВ + КЕРУВАННЯ ГРУПАМИ М'ЯЗІВ
 // ==========================================
 function Exercises() {
   const exercises = useLiveQuery(() => db.exercises.toArray());
+  const { muscleGroups, addGroup, renameGroup, deleteGroup } = useMuscleGroups();
+
   const [search, setSearch] = useState('');
+  const [selectedMuscleFilter, setSelectedMuscleFilter] = useState<string>('Усі');
   const [modalOpen, setModalOpen] = useState(false);
   const [editId, setEditId] = useState<string | null>(null);
   const [formName, setFormName] = useState('');
   const [formMuscle, setFormMuscle] = useState('Загальна');
 
+  const [groupsModalOpen, setGroupsModalOpen] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [editingGroup, setEditingGroup] = useState<string | null>(null);
+  const [editingGroupVal, setEditingGroupVal] = useState('');
+
   const openForm = (ex?: Exercise) => {
     if (ex) { setEditId(ex.id); setFormName(ex.name); setFormMuscle(ex.muscle || 'Загальна'); }
-    else { setEditId(null); setFormName(''); setFormMuscle('Загальна'); }
+    else { setEditId(null); setFormName(''); setFormMuscle(selectedMuscleFilter !== 'Усі' ? selectedMuscleFilter : (muscleGroups[0] || 'Загальна')); }
     setModalOpen(true);
   };
   const saveEx = async () => {
@@ -910,16 +1065,53 @@ function Exercises() {
     else await db.exercises.add({ id: generateId(), name: formName, category: 'Користувацькі', muscle: formMuscle });
     setModalOpen(false);
   };
-  const filtered = exercises?.filter(ex => ex.name.toLowerCase().includes(search.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(search.toLowerCase()))).sort((a, b) => a.name.localeCompare(b.name, 'uk-UA')) || [];
+
+  const filtered = (exercises || [])
+    .filter(ex => {
+      const matchesFilter = selectedMuscleFilter === 'Усі' || (ex.muscle || 'Загальна') === selectedMuscleFilter;
+      const matchesSearch = ex.name.toLowerCase().includes(search.toLowerCase()) || (ex.muscle && ex.muscle.toLowerCase().includes(search.toLowerCase()));
+      return matchesFilter && matchesSearch;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'uk-UA'));
 
   return (
     <div className="p-4 pb-24">
-      <div className="flex justify-between items-center mb-4"><h2 className="text-2xl font-bold">Довідник вправ</h2><button onClick={() => openForm()} className="bg-blue-600 text-white p-2 rounded-lg"><Plus /></button></div>
-      <div className="relative mb-4"><Search className="absolute left-3 top-3 text-gray-400" size={18} /><input className="w-full p-2 pl-10 border rounded-lg bg-gray-50" placeholder="Пошук за назвою або групою..." value={search} onChange={e => setSearch(e.target.value)} /></div>
+      <div className="flex justify-between items-center mb-3">
+        <h2 className="text-2xl font-bold">Довідник вправ</h2>
+        <div className="flex gap-2">
+          <button onClick={() => setGroupsModalOpen(true)} className="bg-gray-100 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs flex items-center gap-1 border border-gray-200">
+            <Tag size={15} /> Групи
+          </button>
+          <button onClick={() => openForm()} className="bg-blue-600 text-white p-2 rounded-lg"><Plus /></button>
+        </div>
+      </div>
+
+      <div className="relative mb-3">
+        <Search className="absolute left-3 top-3 text-gray-400" size={18} />
+        <input className="w-full p-2 pl-10 border rounded-lg bg-gray-50" placeholder="Пошук за назвою або групою..." value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3">
+        {['Усі', ...muscleGroups].map(m => (
+          <button
+            key={m}
+            onClick={() => setSelectedMuscleFilter(m)}
+            className={`px-3 py-1.5 rounded-full text-xs font-bold shrink-0 border ${selectedMuscleFilter === m ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-200'}`}
+          >
+            {m}
+          </button>
+        ))}
+      </div>
+
       <div className="space-y-2">
         {filtered.map(ex => (
           <div key={ex.id} className="bg-white p-3 rounded-lg shadow-sm border-l-4 border-blue-500 flex justify-between items-center">
-            <div><div className="font-medium text-gray-800">{ex.name}</div><div className="text-[10px] font-bold text-gray-400 uppercase">{ex.muscle || 'Загальна'}</div></div>
+            <div>
+              <div className="font-medium text-gray-800">{ex.name}</div>
+              <button onClick={() => openForm(ex)} className="mt-1 inline-flex items-center gap-1 text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded uppercase">
+                {ex.muscle || 'Загальна'} <Edit2 size={10} />
+              </button>
+            </div>
             <div className="flex gap-2">
               <button onClick={() => openForm(ex)} className="text-gray-400 p-1"><Edit2 size={16} /></button>
               <button onClick={() => { if (window.confirm(`Видалити вправу «${ex.name}»?`)) db.exercises.delete(ex.id); }} className="text-red-400 p-1 bg-red-50 rounded"><Trash2 size={16} /></button>
@@ -927,13 +1119,58 @@ function Exercises() {
           </div>
         ))}
       </div>
+
       {modalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[100] p-4">
-          <div className="bg-white w-full max-w-sm rounded-xl p-5 shadow-xl">
-            <h3 className="font-bold text-lg mb-4">{editId ? 'Редагувати вправу' : 'Нова вправа'}</h3>
-            <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Назва вправи" className="w-full p-3 border rounded-lg mb-3" />
-            <select value={formMuscle} onChange={e => setFormMuscle(e.target.value)} className="w-full p-3 border rounded-lg mb-5 bg-white font-medium">{MUSCLE_GROUPS.map(m => <option key={m} value={m}>{m}</option>)}</select>
-            <div className="flex gap-3"><button onClick={() => setModalOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold">Скасувати</button><button onClick={saveEx} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Зберегти</button></div>
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-[110] p-2 pb-20">
+          <div className="bg-white w-full max-w-md rounded-2xl p-5 shadow-xl max-h-[85vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4 border-b pb-2">
+              <h3 className="font-bold text-lg">{editId ? 'Редагувати вправу' : 'Нова вправа'}</h3>
+              <button onClick={() => setModalOpen(false)} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
+            </div>
+            <input value={formName} onChange={e => setFormName(e.target.value)} placeholder="Назва вправи" className="w-full p-3 border rounded-lg mb-4 font-medium bg-gray-50" />
+            <MuscleGroupField value={formMuscle} onChange={setFormMuscle} muscleGroups={muscleGroups} onAddGroup={addGroup} />
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setModalOpen(false)} className="flex-1 bg-gray-100 py-3 rounded-lg font-bold">Скасувати</button>
+              <button onClick={saveEx} className="flex-1 bg-blue-600 text-white py-3 rounded-lg font-bold">Зберегти</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {groupsModalOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-end justify-center z-[115] p-2 pb-20">
+          <div className="bg-white w-full max-w-md rounded-2xl p-4 shadow-2xl max-h-[85vh] flex flex-col">
+            <div className="flex justify-between items-center mb-3 border-b pb-2 shrink-0">
+              <h3 className="font-bold text-lg">Групи м'язів</h3>
+              <button onClick={() => { setGroupsModalOpen(false); setEditingGroup(null); }} className="text-gray-400 bg-gray-100 rounded-full p-1"><X size={20} /></button>
+            </div>
+            <div className="flex gap-2 mb-3 shrink-0">
+              <input value={newGroupName} onChange={e => setNewGroupName(e.target.value)} placeholder="Нова група м'язів..." className="flex-1 p-2.5 border rounded-lg bg-gray-50 text-sm font-medium" />
+              <button onClick={() => { if (newGroupName.trim()) { addGroup(newGroupName.trim()); setNewGroupName(''); } }} className="px-4 bg-blue-600 text-white rounded-lg font-bold text-sm">Додати</button>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2 pb-2">
+              {muscleGroups.map(g => (
+                <div key={g} className="p-2.5 bg-gray-50 border rounded-xl flex items-center justify-between gap-2">
+                  {editingGroup === g ? (
+                    <>
+                      <input value={editingGroupVal} onChange={e => setEditingGroupVal(e.target.value)} className="flex-1 p-2 border border-blue-400 rounded-lg bg-white text-sm font-bold" autoFocus />
+                      <button onClick={async () => { await renameGroup(g, editingGroupVal); setEditingGroup(null); }} className="p-2 bg-blue-600 text-white rounded-lg"><Save size={16} /></button>
+                      <button onClick={() => setEditingGroup(null)} className="p-2 bg-gray-200 text-gray-600 rounded-lg"><X size={16} /></button>
+                    </>
+                  ) : (
+                    <>
+                      <span className="font-bold text-sm text-gray-800 pl-1">{g}</span>
+                      <div className="flex gap-1.5">
+                        <button onClick={() => { setEditingGroup(g); setEditingGroupVal(g); }} className="p-2 bg-white border rounded-lg text-gray-600"><Edit2 size={15} /></button>
+                        {muscleGroups.length > 1 && (
+                          <button onClick={async () => { if (window.confirm(`Видалити групу «${g}»? Вправи перейдуть в іншу групу.`)) await deleteGroup(g); }} className="p-2 bg-red-50 text-red-500 rounded-lg"><Trash2 size={15} /></button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}
@@ -1005,7 +1242,6 @@ function Timers() {
             <button onClick={() => t.startFreePhase('Заминка')} className={`py-3 rounded-xl font-bold text-xs ${t.freePhase === 'Заминка' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700'}`}>Заминка</button>
           </div>
 
-          {/* ВЕЛИКИЙ КОНТРАСТНИЙ ТАЙМЕР ВІДПОЧИНКУ */}
           <div className={`w-full rounded-2xl border-2 mb-4 p-4 shadow-md transition-colors ${t.isFreeResting ? (t.freeRestTimeLeft <= 5 ? 'bg-red-600 border-red-700 text-white' : 'bg-orange-500 border-orange-600 text-white') : 'bg-white border-gray-200 text-gray-900'}`}>
             <div className={`text-xs font-bold uppercase text-center mb-2 ${t.isFreeResting ? 'text-white/90' : 'text-gray-400'}`}>
               {t.isFreeResting ? 'Відпочинок між підходами' : 'Таймер відпочинку'}
@@ -1151,7 +1387,7 @@ function DataSync() {
   };
 
   const exportData = async () => {
-    const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray() };
+    const data = { exercises: await db.exercises.toArray(), workouts: await db.workouts.toArray(), scheduled: await db.scheduled.toArray(), history: await db.history.toArray(), muscleGroups: loadStoredMuscleGroups() };
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }));
     a.download = `w_jornal_backup_${getLocalDateString(new Date())}.json`;
@@ -1167,6 +1403,7 @@ function DataSync() {
         const data = JSON.parse(ev.target?.result as string);
         if (!Array.isArray(data.exercises) || !Array.isArray(data.workouts)) { alert('Невірний формат файлу бекапу.'); return; }
         if (!window.confirm('Замінити всі поточні дані на дані з файлу?')) return;
+        if (Array.isArray(data.muscleGroups)) saveStoredMuscleGroups(data.muscleGroups);
         await db.transaction('rw', db.exercises, db.workouts, db.scheduled, db.history, async () => {
           await db.exercises.clear(); await db.workouts.clear(); await db.scheduled.clear(); await db.history.clear();
           await db.exercises.bulkAdd(data.exercises); await db.workouts.bulkAdd(data.workouts);
